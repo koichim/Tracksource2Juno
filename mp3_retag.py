@@ -28,7 +28,7 @@ id3tag_title = "TIT2"
 
 warning_strings = []
 #mp3_dir = ["./AC_Soul_Symphony_Dave_Lee_ZR_-_I_Want_To_See_You_Dance___The_Philly_Avengers_-_Z_Records"]
-mp3_dir = []
+mp3_dir = [traxsource_dir]
 
 def normalize_unicode(words: str) -> str:
     unicode_words = ""
@@ -310,15 +310,16 @@ for an_mp3_dir in mp3_dir:
             #move the track to mp3/
             shutil.move(an_mp3_file, os.path.join(new_mp3_dir, new_mp3_filename))
     
-    #remove the dir if empty
+    #remove the dir if empty, assuming track from juno
     if tag_update:
-        try:
-            os.removedirs(an_mp3_dir)
-        except OSError as e:
-            logging.debug(f"could not remove the dir {an_mp3_dir}: {e}")
+        if not os.path.basename(an_mp3_dir) == "traxsource":
+            try:
+                os.removedirs(an_mp3_dir)
+            except OSError as e:
+                logging.debug(f"could not remove the dir {an_mp3_dir}: {e}")
 
     if os.path.exists(an_mp3_dir) and \
-        os.path.basename(an_mp3_dir) != traxsource_dir and \
+        not os.path.basename(an_mp3_dir) == traxsource_dir and \
         re.search(r"^[\S]+$", an_mp3_dir):
         new_dir = re.sub(r"_", " ", an_mp3_dir)
         if tag_update:

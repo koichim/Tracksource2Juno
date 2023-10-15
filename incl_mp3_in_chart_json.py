@@ -76,11 +76,14 @@ def normalize_unicode(words: str) -> str:
             unicode_words += character
     return unicode_words
 
+old_json_files = {}
 for a_json in chart_json_files:
     with open(a_json) as f:
         a_chart = json.load(f)
-        a_chart["json_file"] = a_json
+        a_chart["json_file"] = os.path.basename(a_json)
         charts.append(a_chart)
+        old_json_files[a_chart["json_file"]] = a_json
+        
 
 def artist_title_cleansing(str):
     str = normalize_unicode(str)
@@ -159,12 +162,15 @@ for a_chart in charts:
             logging.warning(f"{a_track['num']:>2}------- {a_track['artist']} / {a_track['title']} ({a_track['version']})")
             logging.warning(f"({score} / {hit_ratio:3.2}){os.path.basename(the_mp3_file)}")
     
-    an_updated_chart_json_file = os.path.join("tracks", os.path.basename(a_chart["json_file"]))
+    an_updated_chart_json_file = os.path.join("tracks", a_chart["json_file"])
     if os.path.exists(an_updated_chart_json_file):
         print(f"{an_updated_chart_json_file} exists. skip.")
     else:
         with open(an_updated_chart_json_file, 'w') as f:
             json.dump(a_chart, f, ensure_ascii=False, indent=4, sort_keys=False, separators=(',', ': '))
+    # if not os.path.abspath(an_updated_chart_json_file) == os.path.abspath(old_json_files[a_chart["json_file"]]):
+    #     os.remove(old_json_files[a_chart["json_file"]])
+
 
 print("******* sftp.put my_mp3_tracks.json to SPPD *******")
 my_mp3_tracks = {"date": f"{datetime.datetime.now().year}-{datetime.datetime.now().month}-{datetime.datetime.now().day}",
@@ -207,6 +213,9 @@ for i, a_new_mp3_file in enumerate(new_mp3_files[:]):
         if a_new_mp3_file == a_referred_mp3_file:
             new_mp3_files.remove(a_new_mp3_file)
 
-for an_unreferred_mp3_file in new_mp3_files:
-    print(an_unreferred_mp3_file)
+if len(new_mp3_files) == 0:
+    print("none!")
+else:
+    for an_unreferred_mp3_file in new_mp3_files:
+        print(an_unreferred_mp3_file)
 
