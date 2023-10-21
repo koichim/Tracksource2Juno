@@ -8,7 +8,7 @@
 // @run-at 　　　document-end
 // @grant        GM.xmlHttpRequest
 // @author       Koichi Masuda
-// @version      0.7
+// @version      0.8
 // @description replace artist link of Traxsource to Juno's artist search
 // ==/UserScript==
 
@@ -172,7 +172,15 @@
                     if (0.8 < hit_ratio){
                         let num_div= $(num_elm).children("div");
                         $(num_div).html("<span title=\""+the_mp3_file+"\">&#x2714;</span>"+$(num_div).html());
-                        //$(num_elm).parent().next().html("<div style=\"height:5px\">"+the_mp3_file+"</div>");
+                        $(num_elm).parent().css({'border-bottom':'0px'});
+                        $(num_elm).parent().find('*').css({'color':'#707070'});
+                        let mp3_file_div = $(num_elm).parent().next();
+                        mp3_file_div.html(the_mp3_file);
+                        let offset_left = title_elm[0].offsetLeft; // title_elm.offset().left is absolute in the window
+                        mp3_file_div.css({'height':'16px',
+                                          'font-size':'10px',
+                                          'vertical-align':'top',
+                                          'text-indent': offset_left+'px'});
 
                     }
                 }
