@@ -8,7 +8,7 @@
 // @run-at 　　　document-end
 // @grant        GM.xmlHttpRequest
 // @author       Koichi Masuda
-// @version      0.9
+// @version      0.10
 // @description replace artist link of Traxsource to Juno's artist search
 // ==/UserScript==
 
@@ -84,6 +84,9 @@
         my_mp3_tracks["mp3_tracks"].forEach(function(an_mp3){
             let tmp_artist_title_words = artist_title_words.concat();
             let filename = an_mp3["file"];
+            if (an_mp3["album"] != "tracks"){
+                filename = filename.replace(/^\d+ - (.+ - .+\.mp3)$/, "$1", filename);
+            }
             filename = filename.replace(/\.mp3$/, "");
             let filename_words = artist_title_cleansing_array(filename)
             let total_len = filename_words.length + tmp_artist_title_words.length;
@@ -94,6 +97,9 @@
             if (hit_ratio < (hit*2 / total_len)){
                 score = hit;
                 the_best_mp3_file = an_mp3["file"];
+                if (an_mp3["album"] != "tracks"){
+                    the_best_mp3_file = an_mp3["album"] + " / "+ the_best_mp3_file
+            }
                 hit_ratio = hit*2 / total_len;
             }
         });
