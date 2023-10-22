@@ -14,7 +14,7 @@ logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
 
 #This script is assumed to run in Downloads/mp3 or music/20xx/
 new_mp3_tracks_dir = os.path.join("tracks", "mp3")
-#chart_json_files = ["2023-09-27_The Shapeshifters_WTF CHART.json", "2023-09-28_Louie Vega_Louie Vega’s_.json","2023-10-03_Seamus Haji_Malta Moments.json","2023-10-05_David Penn_David Penn Fever chart.json"]
+#chart_json_files = ["2023-09-27_The Shapeshifters_WTF CHART.json", "2023-10-03_Seamus Haji_Malta Moments.json","2023-10-05_David Penn_David Penn Fever chart.json"]
 chart_json_files = []
 charts = []
 
@@ -41,12 +41,38 @@ if len(chart_json_files)==0:
     sys.exit()
 
 mp3_tracks_dirs = []
-this_year = datetime.datetime.now().year
 mp3_tracks_dirs.append(new_mp3_tracks_dir) # just purchased
-this_year_tracks_dir = os.path.join("/mnt", "h", "music", str(this_year), "tracks", "mp3")
+this_year = datetime.datetime.now().year
+my_mp3_this_year_dir = os.path.join("/mnt", "h", "music", str(this_year))
+this_year_tracks_dir = os.path.join(my_mp3_this_year_dir, "tracks", "mp3")
 if os.path.abspath(new_mp3_tracks_dir) != this_year_tracks_dir:
     mp3_tracks_dirs.append(this_year_tracks_dir) # this year
-mp3_tracks_dirs.append(os.path.join("/mnt", "h", "music", str(this_year-1), "tracks", "mp3")) # last year
+my_mp3_last_year_dir = os.path.join("/mnt", "h", "music", str(this_year-1))
+mp3_tracks_dirs.append(os.path.join(my_mp3_last_year_dir, "tracks", "mp3")) # last year
+
+# search mp3 in albums also
+my_mp3_purchased_albums_dirs = []
+if os.path.abspath(".") != os.path.abspath(my_mp3_this_year_dir):
+    # probably in Downlaod/mp3
+    my_mp3_purchased_albums_dirs = os.listdir(".")
+    my_mp3_purchased_albums_dirs = list(map(lambda x: os.path.join(os.path.abspath("."), x), my_mp3_purchased_albums_dirs))
+my_mp3_this_year_albums_dirs = os.listdir(my_mp3_this_year_dir)
+my_mp3_this_year_albums_dirs = list(map(lambda x: os.path.join(my_mp3_this_year_dir, x), my_mp3_this_year_albums_dirs))
+my_mp3_last_year_albums_dirs = os.listdir(my_mp3_last_year_dir)
+my_mp3_last_year_albums_dirs = list(map(lambda x: os.path.join(my_mp3_last_year_dir, x), my_mp3_last_year_albums_dirs))
+my_mp3_albums_dirs = my_mp3_purchased_albums_dirs + my_mp3_this_year_albums_dirs + my_mp3_last_year_albums_dirs
+my_mp3_albums_dirs = list(set(my_mp3_albums_dirs)) # there would be two "tracks"
+my_mp3_albums_dirs = sorted(my_mp3_albums_dirs, reverse=True, key=lambda x: os.path.basename(x))
+for i,an_mp3_album_dir in  enumerate(my_mp3_albums_dirs[:]):
+    if not os.path.isdir(an_mp3_album_dir) or \
+        os.path.basename(an_mp3_album_dir) == "tracks" or \
+        not re.search(r"^20\d\d-", os.path.basename(an_mp3_album_dir)):
+        my_mp3_albums_dirs.remove(an_mp3_album_dir)
+my_mp3_albums_dirs = my_mp3_albums_dirs[:50] # pick recent 50
+my_mp3_albums_dirs = list(map(lambda x: os.path.join(x, "mp3"), my_mp3_albums_dirs))
+mp3_tracks_dirs += my_mp3_albums_dirs
+
+
 
 mp3_files = []
 new_mp3_files = []
@@ -111,6 +137,9 @@ def comp_arrays_rm_match(array_i, array_j):
                 return True
     return False
 
+def get_album_dir_name(an_mp3_file):
+    return os.path.basename(os.path.dirname(os.path.abspath(os.path.join(an_mp3_file, os.path.pardir))))
+
 def look_for_mp3(artist, title, version=""):
     artist_title = f"{artist} {title} {version}"
     artist_title_words = artist_title_cleansing(artist_title) 
@@ -120,6 +149,8 @@ def look_for_mp3(artist, title, version=""):
     for an_mp3_file in mp3_files:
         tmp_artist_title_words = artist_title_words.copy()
         filename = os.path.basename(an_mp3_file)
+        if get_album_dir_name(an_mp3_file) != "tracks":
+            filename = re.sub(r"^\d+ - (.+ - .+\.mp3)$", r"\1", filename)
         filename = re.sub(r"\.mp3", "", filename)
         filename_words = artist_title_cleansing(filename)
         total_len = len(filename_words) + len(tmp_artist_title_words)
@@ -176,7 +207,8 @@ print("******* sftp.put my_mp3_tracks.json to SPPD *******")
 my_mp3_tracks = {"date": f"{datetime.datetime.now().year}-{datetime.datetime.now().month}-{datetime.datetime.now().day}",
                  "mp3_tracks":[]}
 for an_mp3_file in mp3_files:
-    my_mp3_tracks["mp3_tracks"].append({"file":os.path.basename(an_mp3_file)})
+    album_name = get_album_dir_name(an_mp3_file)
+    my_mp3_tracks["mp3_tracks"].append({"file":os.path.basename(an_mp3_file), "album":album_name})
 tmp_my_mp3_js_file = os.path.join("/tmp", "my_mp3_tracks.json")
 with open(tmp_my_mp3_js_file, 'w') as f:
     json.dump(my_mp3_tracks, f, ensure_ascii=False, indent=4, sort_keys=False, separators=(',', ': '))
