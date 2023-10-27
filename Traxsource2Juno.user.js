@@ -8,7 +8,7 @@
 // @run-at 　　　document-end
 // @grant        GM.xmlHttpRequest
 // @author       Koichi Masuda
-// @version      0.10
+// @version      0.11
 // @description replace artist link of Traxsource to Juno's artist search
 // ==/UserScript==
 
@@ -43,7 +43,7 @@
         str = str.cleansing();
         str = str.toLowerCase();
         let strs = str.split(/\s+/);
-        strs = new array.from(new set(strs)) // remove duplication
+        strs = Array.from(new set(strs)) // remove duplication
         let ret_strs = strs.filter(function(a_str){
             if (a_str == "" ||
                 a_str == "feat" ||
