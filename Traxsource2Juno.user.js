@@ -43,7 +43,7 @@
         str = str.cleansing();
         str = str.toLowerCase();
         let strs = str.split(/\s+/);
-        strs = Array.from(new set(strs)) // remove duplication
+        strs = Array.from(new Set(strs)) // remove duplication
         let ret_strs = strs.filter(function(a_str){
             if (a_str == "" ||
                 a_str == "feat" ||
