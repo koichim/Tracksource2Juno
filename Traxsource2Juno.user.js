@@ -43,13 +43,10 @@
         str = str.cleansing();
         str = str.toLowerCase();
         let strs = str.split(/\s+/);
+        strs = new array.from(new set(strs)) // remove duplication
         let ret_strs = strs.filter(function(a_str){
             if (a_str == "" ||
-                a_str == "extended" ||
-                a_str == "remix" ||
-                a_str == "mix" ||
                 a_str == "feat" ||
-                a_str == "original" ||
                 a_str == "presents" ||
                 a_str == "pres"){
                 return false;
