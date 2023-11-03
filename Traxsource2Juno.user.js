@@ -7,8 +7,9 @@
 // @updateURL   https://github.com/koichim/Tracksource2Juno/raw/main/Traxsource2Juno.user.js
 // @run-at 　　　document-end
 // @grant        GM.xmlHttpRequest
+// @grant        GM.openInTab
 // @author       Koichi Masuda
-// @version      0.12
+// @version      0.13
 // @description replace artist link of Traxsource to Juno's artist search
 // ==/UserScript==
 
@@ -145,13 +146,14 @@
 
 
     function run(){
+        var juno_search_links = [];
         $("a.com-artists").each(function(idx, elm){
             let a = $(elm);
             if (a.attr("href").startsWith(TRAXSOURCE_URL) || !a.attr("href").startsWith("http")){
                 let artist_name = a.text().replace(/ /g,"+");
-                let juno_serch_link = JUNO_ARTIST_SERCH_HEADER+artist_name;
+                let juno_search_link = JUNO_ARTIST_SERCH_HEADER+artist_name;
                 //a.attr("href", JUNO_ARTIST_SERCH_HEADER+artist_name);
-                a.replaceWith("<a href=\""+juno_serch_link+"\">"+a.text()+"</a>");
+                a.replaceWith("<a href=\""+juno_search_link+"\">"+a.text()+"</a>");
                 console.log("Traxsource2Juno: "+a.text()+" -> "+a.attr("href"));
             }
         });
@@ -186,6 +188,8 @@
                                           'vertical-align':'top',
                                           'text-indent': offset_left+'px'});
 
+                    } else {
+                        juno_search_links.push(artist_elms[0].href); // collect juno search links if no mp3 found
                     }
                 }
             });
@@ -197,13 +201,29 @@
                 the_chart.chart_url = location.href;
                 let filename = the_chart.date + "_" + the_chart.chart_artist.cleansing() + "_" + the_chart.chart_title.cleansing() + ".json";
                 let encoded_chart = encodeURIComponent(JSON.stringify(the_chart, null, 2));
-                $("h1.title").append(" (<a id='download_txtfile' download='"+filename+"'>json</a>)");
+                $("h1.title").append(" (<a id='download_txtfile' download='"+filename+"'>json</a>) - ");
+                $("h1.title").append($("<img src=\"https://wwwcdn.junodownload.com/14020302/images/digital/icons/favicon-32x32.png\" "+
+                                       "alt=\"jd\" width=\"24\" height=\"24\" style=\"vertical-align: bottom;\"/>").on("click", function(){
+                    juno_search_links.forEach(function(href, i, array){
+                        let defer_time = (array.length - i)*1000
+                        setTimeout(function(){
+                            console.log("open "+href);
+                            GM.openInTab(href, true);
+                        }, defer_time);
+                    });
+                }));
                 $("#download_txtfile").on("click", function() {
                     //this.href = `data:application/json;charset=UTF-8,${JSON.stringify({massage:encoded_chart})}`;
                     this.href = `data:application/json;charset=UTF-8,${encoded_chart}`;
                 });
                 console.log(my_mp3_tracks);
             }
+                        let npbtns = $(".np-btns .share.embed");
+            if (npbtns.length) {
+                //npbtns.after("<img src=\"https://wwwcdn.junodownload.com/14020302/images/digital/icons/favicon-32x32.png\" />");
+                npbtns.after("<span>jd</span>");
+            }
+
         }
     }
 
