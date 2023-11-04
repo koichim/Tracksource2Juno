@@ -9,7 +9,7 @@
 // @grant        GM.xmlHttpRequest
 // @grant        GM.openInTab
 // @author       Koichi Masuda
-// @version      0.16
+// @version      0.17
 // @description replace artist link of Traxsource to Juno's artist search
 // ==/UserScript==
 
@@ -35,7 +35,8 @@
         return(
             this
             .normalize("NFD")
-            .replace(/'/, "")
+            .replace(/ø/g, "o")
+            .replace(/['’´]/g, "")
             .replace(/[^a-zA-Z0-9]/g, " ")
             .clean()
         );
