@@ -14,8 +14,8 @@ logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
 
 #This script is assumed to run in Downloads/mp3 or music/20xx/
 new_mp3_tracks_dir = os.path.join("tracks", "mp3")
-#chart_json_files = ["2023-09-27_The Shapeshifters_WTF CHART.json", "2023-10-03_Seamus Haji_Malta Moments.json","2023-10-05_David Penn_David Penn Fever chart.json"]
-chart_json_files = []
+chart_json_files = ["2023-10-17_David Penn_ALRIGHT.json"]
+#chart_json_files = []
 charts = []
 
 argv = sys.argv
@@ -98,6 +98,9 @@ for an_mp3_dir in mp3_tracks_dirs:
 def normalize_unicode(words: str) -> str:
     unicode_words = ""
     for character in unicodedata.normalize("NFD", words):
+    #for character in unicodedata.normalize("NFC", words):
+    #for character in unicodedata.normalize("NFKC", words):
+    #for character in unicodedata.normalize("NFKD", words):
         if unicodedata.category(character) != "Mn":
             unicode_words += character
     return unicode_words
@@ -113,18 +116,18 @@ for a_json in chart_json_files:
 
 def artist_title_cleansing(str):
     str = normalize_unicode(str)
-    str = re.sub(r"'", "", str) #I'm -> im, Mousse T's -> Mousse Ts
+    str = re.sub(r"ø", "o", str) # can not normalize_unicode
+    str = re.sub(r"['’´]", "", str) #I'm -> im, Mousse T's -> Mousse Ts
     str = re.sub(r"[^a-zA-Z0-9]", " ", str)
     str = str.lower()
     strs = str.split()
+    strs = list(set(strs)) # remove duplication
     for i, a_str in enumerate(strs[:]):
-        if a_str == "extended" or \
+        if a_str == "presents" or \
+            a_str == "pres" or \
             a_str == "remix" or \
             a_str == "mix" or \
-            a_str == "feat" or \
-            a_str == "original" or \
-            a_str == "presents" or \
-            a_str == "pres":
+            a_str == "feat":
             strs.remove(a_str)
     return strs
 
@@ -169,6 +172,7 @@ for a_chart in charts:
     print("")
     print(f"{a_chart['chart_title']} by {a_chart['chart_artist']} on {a_chart['date']}")
     for i, a_track in enumerate(a_chart["chart"]):
+        if not a_track: continue
         the_mp3_file, score, hit_ratio = look_for_mp3(a_track['artist'], a_track['title'], version=a_track['version'])
         the_mp3_file_wo_ver, score_wo_ver, hit_ratio_wo_ver = look_for_mp3(a_track['artist'], a_track['title'])
         if hit_ratio < hit_ratio_wo_ver:
@@ -189,7 +193,7 @@ for a_chart in charts:
             a_track["mp3_file"] = the_mp3_file
             referred_mp3_files.append(os.path.basename(the_mp3_file))
 
-        elif int(a_track["num"]) <= 10:
+        if hit_ratio <= 0.9 and int(a_track["num"]) <= 10:
             logging.warning(f"{a_track['num']:>2}------- {a_track['artist']} / {a_track['title']} ({a_track['version']})")
             logging.warning(f"({score} / {hit_ratio:3.2}){os.path.basename(the_mp3_file)}")
     

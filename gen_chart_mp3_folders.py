@@ -13,8 +13,8 @@ logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
 
 #This script is assumed to run in Downloads/mp3 or music/20xx/
 new_mp3_tracks_dir = os.path.join("tracks", "mp3")
-#chart_json_files = ["2023-09-27_The Shapeshifters_WTF CHART.json", "2023-09-28_Louie Vega_Louie Vega’s_.json","2023-10-03_Seamus Haji_Malta Moments.json","2023-10-05_David Penn_David Penn Fever chart.json"]
-chart_json_files = []
+chart_json_files = ["2023-10-09_Colette_Colette Love Will Set You Free  Top Ten.json"]
+#chart_json_files = []
 charts = []
 
 argv = sys.argv
@@ -50,7 +50,7 @@ for a_json in chart_json_files:
             charts.append(a_chart)
 
 for a_chart in charts:
-    chart_mp3_dir = "_"+re.sub(r".json$", "", a_chart["json_file"])
+    chart_mp3_dir = "#"+re.sub(r".json$", "", a_chart["json_file"])
     print(f"making {a_chart['json_file']} folder")
     os.mkdir(chart_mp3_dir)
     for an_mp3 in a_chart["chart"]:
