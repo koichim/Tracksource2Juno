@@ -9,7 +9,7 @@
 // @grant        GM.xmlHttpRequest
 // @grant        GM.openInTab
 // @author       Koichi Masuda
-// @version      0.15
+// @version      0.16
 // @description replace artist link of Traxsource to Juno's artist search
 // ==/UserScript==
 
@@ -113,6 +113,7 @@
         // synchronous: true, //同期処理のためのオプションだが、機能しなかったのでコメントアウトした。
         method: 'GET',
         url: 'https://masuda.sppd.ne.jp/etc/my_mp3_tracks.json',
+        nocache: true,
         onload: function (response) {
             my_mp3_tracks = JSON.parse(response.responseText);
         },
