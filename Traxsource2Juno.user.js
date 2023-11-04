@@ -9,7 +9,7 @@
 // @grant        GM.xmlHttpRequest
 // @grant        GM.openInTab
 // @author       Koichi Masuda
-// @version      0.13
+// @version      0.14
 // @description replace artist link of Traxsource to Juno's artist search
 // ==/UserScript==
 
@@ -188,7 +188,7 @@
                                           'vertical-align':'top',
                                           'text-indent': offset_left+'px'});
 
-                    } else {
+                    } else if (num <= 10) {
                         juno_search_links.push(artist_elms[0].href); // collect juno search links if no mp3 found
                     }
                 }
