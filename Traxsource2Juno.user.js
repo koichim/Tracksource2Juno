@@ -9,7 +9,7 @@
 // @grant        GM.xmlHttpRequest
 // @grant        GM.openInTab
 // @author       Koichi Masuda
-// @version      0.14
+// @version      0.15
 // @description replace artist link of Traxsource to Juno's artist search
 // ==/UserScript==
 
@@ -47,7 +47,11 @@
         strs = Array.from(new Set(strs)) // remove duplication
         let ret_strs = strs.filter(function(a_str){
             if (a_str == "" ||
+                a_str == "extended" ||
+                a_str == "remix" ||
+                a_str == "mix" ||
                 a_str == "feat" ||
+                a_str == "original" ||
                 a_str == "presents" ||
                 a_str == "pres"){
                 return false;
