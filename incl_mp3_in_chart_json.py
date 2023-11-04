@@ -14,8 +14,8 @@ logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
 
 #This script is assumed to run in Downloads/mp3 or music/20xx/
 new_mp3_tracks_dir = os.path.join("tracks", "mp3")
-chart_json_files = ["2023-10-17_David Penn_ALRIGHT.json"]
-#chart_json_files = []
+#chart_json_files = ["2023-10-06_Milk Sugar_Milk Sugar House Nation playlist.json"]
+chart_json_files = []
 charts = []
 
 argv = sys.argv
@@ -186,10 +186,10 @@ for a_chart in charts:
         logging.info(f"({score} / {hit_ratio:3.2}){os.path.basename(the_mp3_file)}")
         
         if 0.8 < hit_ratio:
-            if re.search(str(this_year), os.path.dirname(the_mp3_file)):
+            #if re.search(str(this_year), os.path.dirname(the_mp3_file)):
                 # because new_dir ones incl. json will be moved to this_year dir. 
                 # so, new and this year mp3 can be point to rerative path.
-                the_mp3_file = os.path.join(new_mp3_tracks_dir, os.path.basename(the_mp3_file))
+                #the_mp3_file = os.path.join(new_mp3_tracks_dir, os.path.basename(the_mp3_file))
             a_track["mp3_file"] = the_mp3_file
             referred_mp3_files.append(os.path.basename(the_mp3_file))
 

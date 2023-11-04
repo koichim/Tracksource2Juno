@@ -13,8 +13,8 @@ logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
 
 #This script is assumed to run in Downloads/mp3 or music/20xx/
 new_mp3_tracks_dir = os.path.join("tracks", "mp3")
-chart_json_files = ["2023-10-09_Colette_Colette Love Will Set You Free  Top Ten.json"]
-#chart_json_files = []
+#chart_json_files = ["2023-10-09_Colette_Colette Love Will Set You Free  Top Ten.json"]
+chart_json_files = []
 charts = []
 
 argv = sys.argv
@@ -54,6 +54,7 @@ for a_chart in charts:
     print(f"making {a_chart['json_file']} folder")
     os.mkdir(chart_mp3_dir)
     for an_mp3 in a_chart["chart"]:
+        if not an_mp3: continue
         an_mp3_file = an_mp3.get("mp3_file")
         if an_mp3_file:
             exsisting_mp3_file = ""
