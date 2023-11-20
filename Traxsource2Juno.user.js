@@ -3,13 +3,14 @@
 // @namespace    Traxsource2Juno
 // @match      https://www.traxsource.com/*
 // @require 　　 https://code.jquery.com/jquery-2.0.0.min.js
+// @require     https://cdn.jsdelivr.net/npm/lodash@4.17.21/lodash.min.js
 // @downloadURL   https://github.com/koichim/Tracksource2Juno/raw/main/Traxsource2Juno.user.js
 // @updateURL   https://github.com/koichim/Tracksource2Juno/raw/main/Traxsource2Juno.user.js
 // @run-at 　　　document-end
 // @grant        GM.xmlHttpRequest
 // @grant        GM.openInTab
 // @author       Koichi Masuda
-// @version      0.17
+// @version      0.18
 // @description replace artist link of Traxsource to Juno's artist search
 // ==/UserScript==
 
@@ -32,14 +33,12 @@
         );
     }
     String.prototype.cleansing =function() {
-        return(
-            this
-            .normalize("NFD")
-            .replace(/ø/g, "o")
-            .replace(/['’´]/g, "")
-            .replace(/[^a-zA-Z0-9]/g, " ")
-            .clean()
-        );
+       //let tmp_str = this.normalize("NFD"); // could not normalize Obskür...
+        let tmp_str = _.deburr(this);  // use lodash.deburr, instead...
+        tmp_str = tmp_str.replace(/['’´]/g, "");
+        tmp_str = tmp_str.replace(/[^a-zA-Z0-9]/g, " ");
+        tmp_str = tmp_str.clean();
+        return tmp_str;
     }
     function artist_title_cleansing_array(str){
         str = str.cleansing();
