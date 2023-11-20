@@ -10,7 +10,7 @@
 // @grant        GM.xmlHttpRequest
 // @grant        GM.openInTab
 // @author       Koichi Masuda
-// @version      0.18
+// @version      0.19
 // @description replace artist link of Traxsource to Juno's artist search
 // ==/UserScript==
 
@@ -167,6 +167,12 @@
                 let num_elm = $(elm).find("div.trk-cell.tnum-pos");
                 if (num_elm) {
                     let num =num_elm.text().clean();
+                    let genre = $(elm).find("div.trk-cell.genre").text();
+                    let is_classic = false;
+                    if (genre.match(/classic/i)) {
+                        is_classic = true;
+                        $(num_elm).parent().find('*').css({'color':'#f6f600'}); // original: #f6f6f6
+                    }
                     let title_elm = $(elm).find("div.trk-cell.title");
                     let title = title_elm.find("a").text().clean();
                     let version = title_elm.find("span.version").textNodeText().clean();
@@ -184,6 +190,9 @@
                         $(num_div).html("<span title=\""+the_mp3_file+"\">&#x2714;</span>"+$(num_div).html());
                         $(num_elm).parent().css({'border-bottom':'0px'});
                         $(num_elm).parent().find('*').css({'color':'#707070'});
+                        if (is_classic) {
+                            $(num_elm).parent().find('*').css({'color':'#707000'});
+                        }
                         let mp3_file_div = $(num_elm).parent().clone();
                         mp3_file_div.insertAfter($(num_elm).parent());
                         mp3_file_div.html(the_mp3_file);
