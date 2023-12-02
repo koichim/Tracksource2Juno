@@ -65,8 +65,8 @@ my_mp3_albums_dirs = list(set(my_mp3_albums_dirs)) # there would be two "tracks"
 my_mp3_albums_dirs = sorted(my_mp3_albums_dirs, reverse=True, key=lambda x: os.path.basename(x))
 for i,an_mp3_album_dir in  enumerate(my_mp3_albums_dirs[:]):
     if not os.path.isdir(an_mp3_album_dir) or \
-        os.path.basename(an_mp3_album_dir) == "tracks" or \
-        not re.search(r"^20\d\d-", os.path.basename(an_mp3_album_dir)):
+        os.path.basename(an_mp3_album_dir) == "tracks":# or \
+        # not re.search(r"^20\d\d-", os.path.basename(an_mp3_album_dir)):
         my_mp3_albums_dirs.remove(an_mp3_album_dir)
 my_mp3_albums_dirs = my_mp3_albums_dirs[:50] # pick recent 50
 my_mp3_albums_dirs = list(map(lambda x: os.path.join(x, "mp3"), my_mp3_albums_dirs))
@@ -190,6 +190,9 @@ for a_chart in charts:
                 # because new_dir ones incl. json will be moved to this_year dir. 
                 # so, new and this year mp3 can be point to rerative path.
                 #the_mp3_file = os.path.join(new_mp3_tracks_dir, os.path.basename(the_mp3_file))
+            if re.search(os.path.join("mnt","c","Users","koich","Downloads","mp3"),the_mp3_file):
+                the_mp3_file = the_mp3_file.replace(os.path.join("mnt","c","Users","koich","Downloads","mp3"), 
+                                                    os.path.join("mnt","h","music",str(this_year)))
             a_track["mp3_file"] = the_mp3_file
             referred_mp3_files.append(os.path.basename(the_mp3_file))
 
