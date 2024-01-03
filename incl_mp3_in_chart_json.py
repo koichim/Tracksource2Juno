@@ -41,11 +41,11 @@ if len(chart_json_files)==0:
     sys.exit()
 
 mp3_tracks_dirs = []
-mp3_tracks_dirs.append(new_mp3_tracks_dir) # just purchased
+if os.path.isdir(new_mp3_tracks_dir): mp3_tracks_dirs.append(new_mp3_tracks_dir) # just purchased
 this_year = datetime.datetime.now().year
 my_mp3_this_year_dir = os.path.join("/mnt", "h", "music", str(this_year))
 this_year_tracks_dir = os.path.join(my_mp3_this_year_dir, "tracks", "mp3")
-if os.path.abspath(new_mp3_tracks_dir) != this_year_tracks_dir:
+if os.path.isdir(this_year_tracks_dir) and os.path.abspath(new_mp3_tracks_dir) != this_year_tracks_dir:
     mp3_tracks_dirs.append(this_year_tracks_dir) # this year
 my_mp3_last_year_dir = os.path.join("/mnt", "h", "music", str(this_year-1))
 mp3_tracks_dirs.append(os.path.join(my_mp3_last_year_dir, "tracks", "mp3")) # last year
@@ -56,9 +56,11 @@ if os.path.abspath(".") != os.path.abspath(my_mp3_this_year_dir):
     # probably in Downlaod/mp3
     my_mp3_purchased_albums_dirs = os.listdir(".")
     my_mp3_purchased_albums_dirs = list(map(lambda x: os.path.join(os.path.abspath("."), x), my_mp3_purchased_albums_dirs))
-my_mp3_this_year_albums_dirs = os.listdir(my_mp3_this_year_dir)
-my_mp3_this_year_albums_dirs = list(map(lambda x: os.path.join(my_mp3_this_year_dir, x), my_mp3_this_year_albums_dirs))
-my_mp3_last_year_albums_dirs = os.listdir(my_mp3_last_year_dir)
+if os.path.isdir(my_mp3_this_year_dir):
+    my_mp3_this_year_albums_dirs = os.listdir(my_mp3_this_year_dir)
+    my_mp3_this_year_albums_dirs = list(map(lambda x: os.path.join(my_mp3_this_year_dir, x), my_mp3_this_year_albums_dirs))
+else: my_mp3_this_year_albums_dirs = []
+my_mp3_last_year_albums_dirs = os.listdir(my_mp3_last_year_dir) # must exist
 my_mp3_last_year_albums_dirs = list(map(lambda x: os.path.join(my_mp3_last_year_dir, x), my_mp3_last_year_albums_dirs))
 my_mp3_albums_dirs = my_mp3_purchased_albums_dirs + my_mp3_this_year_albums_dirs + my_mp3_last_year_albums_dirs
 my_mp3_albums_dirs = list(set(my_mp3_albums_dirs)) # there would be two "tracks"
