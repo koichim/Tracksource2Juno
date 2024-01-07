@@ -173,6 +173,7 @@ referred_mp3_files = []
 for a_chart in charts:
     print("")
     print(f"{a_chart['chart_title']} by {a_chart['chart_artist']} on {a_chart['date']}")
+    print(a_chart['chart_url'])
     for i, a_track in enumerate(a_chart["chart"]):
         if not a_track: continue
         the_mp3_file, score, hit_ratio = look_for_mp3(a_track['artist'], a_track['title'], version=a_track['version'])
