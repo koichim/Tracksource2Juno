@@ -191,7 +191,7 @@
                     the_chart.chart[Number(num-1)] = {num: num, title:title, version:version, artist:artist};
 
                     let [the_mp3_file, score, hit_ratio] = look_for_mp3(artist, title, version);
-                    if (0.8 < hit_ratio){
+                    if (0.8 <= hit_ratio){
                         let num_div= $(num_elm).children("div");
                         $(num_div).html("<span title=\""+the_mp3_file+"\">&#x2714;</span>"+$(num_div).html());
                         $(num_elm).parent().css({'border-bottom':'0px'});
@@ -201,7 +201,7 @@
                         }
                         let mp3_file_div = $(num_elm).parent().clone();
                         mp3_file_div.insertAfter($(num_elm).parent());
-                        mp3_file_div.html(the_mp3_file);
+                        mp3_file_div.html("["+String(hit_ratio)+"] "+the_mp3_file);
                         let offset_left = title_elm[0].offsetLeft; // title_elm.offset().left is absolute in the window
                         mp3_file_div.css({'height':'16px',
                                           'font-size':'10px',
