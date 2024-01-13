@@ -188,7 +188,7 @@ for a_chart in charts:
             logging.info(f"{a_track['num']:>2}------- {a_track['artist']} / {a_track['title']}")
         logging.info(f"({score} / {hit_ratio:3.2}){os.path.basename(the_mp3_file)}")
         
-        if 0.8 < hit_ratio:
+        if 0.8 <= hit_ratio:
             #if re.search(str(this_year), os.path.dirname(the_mp3_file)):
                 # because new_dir ones incl. json will be moved to this_year dir. 
                 # so, new and this year mp3 can be point to rerative path.
