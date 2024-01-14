@@ -10,6 +10,21 @@ import unicodedata
 import paramiko
 import textfile
 
+class pycolor:
+    BLACK = '\033[30m\033[1m'
+    RED = '\033[31m\033[1m'
+    GREEN = '\033[32m\033[1m'
+    YELLOW = '\033[33m\033[1m'
+    BLUE = '\033[34m\033[1m'
+    PURPLE = '\033[35m\033[1m'
+    CYAN = '\033[36m\033[1m'
+    WHITE = '\033[37m\033[1m'
+    END = '\033[0m'
+    BOLD = '\038[1m'
+    UNDERLINE = '\033[4m'
+    INVISIBLE = '\033[08m'
+    REVERCE = '\033[07m'
+
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
 
 #This script is assumed to run in Downloads/mp3 or music/20xx/
@@ -173,7 +188,7 @@ referred_mp3_files = []
 for a_chart in charts:
     print("")
     print(f"{a_chart['chart_title']} by {a_chart['chart_artist']} on {a_chart['date']}")
-    print(a_chart['chart_url'])
+    print(pycolor.BLUE+a_chart['chart_url']+pycolor.END)
     for i, a_track in enumerate(a_chart["chart"]):
         if not a_track: continue
         the_mp3_file, score, hit_ratio = look_for_mp3(a_track['artist'], a_track['title'], version=a_track['version'])
@@ -200,8 +215,12 @@ for a_chart in charts:
             referred_mp3_files.append(os.path.basename(the_mp3_file))
 
         if hit_ratio <= 0.9 and int(a_track["num"]) <= 10:
-            logging.warning(f"{a_track['num']:>2}------- {a_track['artist']} / {a_track['title']} ({a_track['version']})")
-            logging.warning(f"({score} / {hit_ratio:3.2}){os.path.basename(the_mp3_file)}")
+            logging.warning(pycolor.YELLOW+
+                            f"{a_track['num']:>2}------- {a_track['artist']} / {a_track['title']} ({a_track['version']})"+
+                            pycolor.END)
+            logging.warning(pycolor.YELLOW+
+                            f"({score} / {hit_ratio:3.2}){os.path.basename(the_mp3_file)}"+
+                            pycolor.END)
     
     an_updated_chart_json_file = os.path.join("tracks", a_chart["json_file"])
     if os.path.exists(an_updated_chart_json_file):
@@ -259,5 +278,5 @@ if len(new_mp3_files) == 0:
     print("none!")
 else:
     for an_unreferred_mp3_file in new_mp3_files:
-        print(an_unreferred_mp3_file)
+        print(pycolor.YELLOW+an_unreferred_mp3_file+pycolor.END)
 
