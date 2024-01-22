@@ -215,10 +215,12 @@ for a_chart in charts:
             referred_mp3_files.append(os.path.basename(the_mp3_file))
 
         if hit_ratio <= 0.9 and int(a_track["num"]) <= 10:
-            logging.warning(pycolor.YELLOW+
+            txt_color = pycolor.YELLOW
+            if hit_ratio < 0.8: txt_color = pycolor.RED
+            logging.warning(txt_color+
                             f"{a_track['num']:>2}------- {a_track['artist']} / {a_track['title']} ({a_track['version']})"+
                             pycolor.END)
-            logging.warning(pycolor.YELLOW+
+            logging.warning(txt_color+
                             f"({score} / {hit_ratio:3.2}){os.path.basename(the_mp3_file)}"+
                             pycolor.END)
     
