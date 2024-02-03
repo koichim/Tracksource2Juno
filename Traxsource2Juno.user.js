@@ -10,7 +10,7 @@
 // @grant        GM.xmlHttpRequest
 // @grant        GM.openInTab
 // @author       Koichi Masuda
-// @version      0.22
+// @version      0.23
 // @description replace artist link of Traxsource to Juno's artist search
 // ==/UserScript==
 
@@ -155,7 +155,12 @@
         $("a.com-artists").each(function(idx, elm){
             let a = $(elm);
             if (a.attr("href").startsWith(TRAXSOURCE_URL) || !a.attr("href").startsWith("http")){
-                let artist_name = a.text().replace(/ /g,"+");
+                //let artist_name = a.text().replace(/ /g,"+");
+                let artist_name_array = a.text().split(' ');
+                artist_name_array.forEach(function(elm, idx){
+                    artist_name_array[idx] = encodeURIComponent(elm);
+                });
+                let artist_name = artist_name_array.join('+');
                 let juno_search_link = JUNO_ARTIST_SERCH_HEADER+artist_name;
                 //a.attr("href", JUNO_ARTIST_SERCH_HEADER+artist_name);
                 a.replaceWith("<a href=\""+juno_search_link+"\">"+a.text()+"</a>");
