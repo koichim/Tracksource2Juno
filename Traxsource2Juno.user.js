@@ -10,7 +10,7 @@
 // @grant        GM.xmlHttpRequest
 // @grant        GM.openInTab
 // @author       Koichi Masuda
-// @version      0.23
+// @version      0.24
 // @description replace artist link of Traxsource to Juno's artist search
 // ==/UserScript==
 
@@ -196,21 +196,32 @@
                     the_chart.chart[Number(num-1)] = {num: num, title:title, version:version, artist:artist};
 
                     let [the_mp3_file, score, hit_ratio] = look_for_mp3(artist, title, version);
-                    if (0.8 <= hit_ratio){
-                        let num_div= $(num_elm).children("div");
-                        $(num_div).html("<span title=\""+the_mp3_file+"\">&#x2714;</span>"+$(num_div).html());
+                    if (0.6 <= hit_ratio){
                         $(num_elm).parent().css({'border-bottom':'0px'});
-                        $(num_elm).parent().find('*').css({'color':'#707070'});
+                        let mp3_file_color = '#ccc';
+                        if (0.9 <= hit_ratio) {
+                            let num_div= $(num_elm).children("div");
+                            $(num_div).html("<span title=\""+the_mp3_file+"\">&#x2714;</span>"+$(num_div).html()); // check mark
+                            $(num_elm).parent().find('*').css({'color':'#707070'}); // gray out
+                            mp3_file_color = '#707070';
+                        } else if (0.8 <= hit_ratio) {
+                            mp3_file_color = '#cc9';
+                        } else if (0.7 <= hit_ratio) {
+                            mp3_file_color = '#cc0';
+                        } else if (0.6 <= hit_ratio) {
+                            mp3_file_color = '#c00';
+                        }
                         if (is_classic) {
                             $(num_elm).parent().find('*').css({'color':'#707000'});
                         }
                         let mp3_file_div = $(num_elm).parent().clone();
                         mp3_file_div.insertAfter($(num_elm).parent());
-                        mp3_file_div.html("["+String(hit_ratio*100)+"%] "+the_mp3_file);
+                        mp3_file_div.html("["+String(Math.trunc(hit_ratio*100))+"%] "+the_mp3_file);
                         let offset_left = title_elm[0].offsetLeft; // title_elm.offset().left is absolute in the window
                         mp3_file_div.css({'height':'16px',
                                           'font-size':'10px',
                                           'vertical-align':'top',
+                                          'color':mp3_file_color,
                                           'text-indent': offset_left+'px'});
                         mp3_file_div.attr('id', "Tracksource2Juno: "+the_mp3_file);
 
