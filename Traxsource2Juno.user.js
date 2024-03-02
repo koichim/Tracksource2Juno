@@ -10,7 +10,7 @@
 // @grant        GM.xmlHttpRequest
 // @grant        GM.openInTab
 // @author       Koichi Masuda
-// @version      0.25
+// @version      0.26
 // @description replace artist link of Traxsource to Juno's artist search
 // ==/UserScript==
 
@@ -226,7 +226,7 @@
                         mp3_file_div.attr('id', "Tracksource2Juno: "+the_mp3_file);
 
                     }
-                    if (0.9 <= hit_ratio && num <= 10) {
+                    if (hit_ratio < 0.9 && num <= 10) {
                         if (artist_elms && artist_elms[0] && artist_elms[0].href) {
                             juno_search_links.push(artist_elms[0].href); // collect juno search links if no mp3 found
                         }
