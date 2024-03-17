@@ -5,10 +5,6 @@ import os
 import re
 import logging
 import json
-import datetime
-import unicodedata
-import paramiko
-import textfile
 
 class pycolor:
     BLACK = '\033[30m\033[1m'
@@ -52,6 +48,8 @@ while argv:
     # else:
     if os.path.splitext(arg)[1] == ".json":
         chart_json_files.append(arg)
+
+chart_json_files.sort(key=os.path.getmtime)
 
 if len(chart_json_files)==0:
     logging.error("please specify json chart files")
@@ -101,7 +99,6 @@ def chart_name(chart_artist, chart_title):
         return chart_artist+" "+chart_title
 
 for a_chart in charts:
-    print("")
     print(link(a_chart['chart_url'], chart_name(a_chart['chart_artist'], a_chart['chart_title'])))
     dup_count_text = ""
     for i, a_track in enumerate(a_chart["chart"]):
