@@ -10,7 +10,7 @@
 // @grant        GM.xmlHttpRequest
 // @grant        GM.openInTab
 // @author       Koichi Masuda
-// @version      0.22
+// @version      0.28
 // @description replace artist link of Traxsource to Juno's artist search
 // ==/UserScript==
 
@@ -40,11 +40,13 @@
         tmp_str = tmp_str.clean();
         return tmp_str;
     }
-    function artist_title_cleansing_array(str){
+    function artist_title_cleansing_array(str, rm_dup){
         str = str.cleansing();
         str = str.toLowerCase();
         let strs = str.split(/\s+/);
-        strs = Array.from(new Set(strs)) // remove duplication
+        if (rm_dup) {
+            strs = Array.from(new Set(strs)) // remove duplication
+        }
         let ret_strs = strs.filter(function(a_str){
             if (a_str == "" ||
                 a_str == "extended" ||
@@ -77,9 +79,9 @@
         return false;
     }
 
-    function look_for_mp3(artist, title, version){
+    function look_for_mp3(artist, title, version, rm_dup){
         let artist_title = artist+" "+title+" "+version;
-        let artist_title_words = artist_title_cleansing_array(artist_title);
+        let artist_title_words = artist_title_cleansing_array(artist_title, rm_dup);
         let score = 0; // smallest is the best
         let hit_ratio = 0.0;
         let the_best_mp3_file = "";
@@ -90,7 +92,7 @@
                 filename = filename.replace(/^\d+ - (.+ - .+\.mp3)$/, "$1", filename);
             }
             filename = filename.replace(/\.mp3$/, "");
-            let filename_words = artist_title_cleansing_array(filename)
+            let filename_words = artist_title_cleansing_array(filename, rm_dup)
             let total_len = filename_words.length + tmp_artist_title_words.length;
             let hit = 0;
             while (comp_arrays_rm_match(filename_words, tmp_artist_title_words)){
@@ -105,7 +107,7 @@
                 hit_ratio = hit*2 / total_len;
             }
         });
-        return [the_best_mp3_file, score, hit_ratio];
+        return {"the_mp3_file":the_best_mp3_file, "score":score, "hit_ratio":hit_ratio};
     }
 
     var my_mp3_tracks = {};
@@ -155,7 +157,12 @@
         $("a.com-artists").each(function(idx, elm){
             let a = $(elm);
             if (a.attr("href").startsWith(TRAXSOURCE_URL) || !a.attr("href").startsWith("http")){
-                let artist_name = a.text().replace(/ /g,"+");
+                //let artist_name = a.text().replace(/ /g,"+");
+                let artist_name_array = a.text().split(' ');
+                artist_name_array.forEach(function(elm, idx){
+                    artist_name_array[idx] = encodeURIComponent(elm);
+                });
+                let artist_name = artist_name_array.join('+');
                 let juno_search_link = JUNO_ARTIST_SERCH_HEADER+artist_name;
                 //a.attr("href", JUNO_ARTIST_SERCH_HEADER+artist_name);
                 a.replaceWith("<a href=\""+juno_search_link+"\">"+a.text()+"</a>");
@@ -188,32 +195,65 @@
                         if (0<i){artist += ", ";}
                         artist += $(artist_elms[i]).text().clean();
                     }
-                    the_chart.chart[Number(num-1)] = {num: num, title:title, version:version, artist:artist};
+                    
+                    look4mp3_results = [];
+                    look4mp3_results.push(look_for_mp3(artist, title, version, true));
+                    look4mp3_results.push(look_for_mp3(artist, title, "", true));
+                    look4mp3_results.push(look_for_mp3(artist, title, version, false));
+                    let max_score_x_hit_ratio = 0;
+                    let max_indx = 0; // default with version and rm_dup=true
 
-                    let [the_mp3_file, score, hit_ratio] = look_for_mp3(artist, title, version);
-                    if (0.8 <= hit_ratio){
-                        let num_div= $(num_elm).children("div");
-                        $(num_div).html("<span title=\""+the_mp3_file+"\">&#x2714;</span>"+$(num_div).html());
+                    look4mp3_results.forEach(function(a_look4mp3_result, indx){
+                        let score_x_hit_ratio = a_look4mp3_result.score * a_look4mp3_result.hit_ratio;
+                        if (max_score_x_hit_ratio < score_x_hit_ratio){
+                            max_score_x_hit_ratio = score_x_hit_ratio;
+                            max_indx = indx;
+                        }
+                    });
+                    let the_mp3_file = look4mp3_results[max_indx].the_mp3_file
+                    let score = look4mp3_results[max_indx].score;
+                    let hit_ratio = look4mp3_results[max_indx].hit_ratio;
+                    if (0.6 <= hit_ratio){
                         $(num_elm).parent().css({'border-bottom':'0px'});
-                        $(num_elm).parent().find('*').css({'color':'#707070'});
+                        let mp3_file_color = '#ccc';
+                        if (0.9 <= hit_ratio) {
+                            let num_div= $(num_elm).children("div");
+                            $(num_div).html("<span title=\""+the_mp3_file+"\">&#x2714;</span>"+$(num_div).html()); // check mark
+                            $(num_elm).parent().find('*').css({'color':'#707070'}); // gray out
+                            mp3_file_color = '#707070';
+                        } else if (0.8 <= hit_ratio) {
+                            mp3_file_color = '#cc9';
+                        } else if (0.7 <= hit_ratio) {
+                            mp3_file_color = '#cc0';
+                        } else if (0.6 <= hit_ratio) {
+                            mp3_file_color = '#c00';
+                        }
                         if (is_classic) {
                             $(num_elm).parent().find('*').css({'color':'#707000'});
                         }
                         let mp3_file_div = $(num_elm).parent().clone();
                         mp3_file_div.insertAfter($(num_elm).parent());
-                        mp3_file_div.html("["+String(hit_ratio*100)+"%] "+the_mp3_file);
+                        mp3_file_div.html("["+String(Math.trunc(hit_ratio*100))+"%] "+the_mp3_file);
                         let offset_left = title_elm[0].offsetLeft; // title_elm.offset().left is absolute in the window
                         mp3_file_div.css({'height':'16px',
                                           'font-size':'10px',
                                           'vertical-align':'top',
+                                          'color':mp3_file_color,
                                           'text-indent': offset_left+'px'});
                         mp3_file_div.attr('id', "Tracksource2Juno: "+the_mp3_file);
 
-                    } else if (num <= 10) {
+                    }
+                    if (hit_ratio < 0.9 && num <= 10) {
                         if (artist_elms && artist_elms[0] && artist_elms[0].href) {
                             juno_search_links.push(artist_elms[0].href); // collect juno search links if no mp3 found
                         }
                     }
+                    // for download chart json
+                    let the_mp3_file_4json = the_mp3_file;
+                    if (hit_ratio < 0.8) {
+                        the_mp3_file_4json = ""; // regard as not found
+                    }
+                    the_chart.chart[Number(num-1)] = {num: num, title:title, version:version, artist:artist, mp3_file:the_mp3_file_4json};
                 }
             });
             if (the_chart.chart.length) {
