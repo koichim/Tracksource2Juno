@@ -10,7 +10,7 @@
 // @grant        GM.xmlHttpRequest
 // @grant        GM.openInTab
 // @author       Koichi Masuda
-// @version      0.27
+// @version      0.28
 // @description replace artist link of Traxsource to Juno's artist search
 // ==/UserScript==
 
@@ -195,8 +195,7 @@
                         if (0<i){artist += ", ";}
                         artist += $(artist_elms[i]).text().clean();
                     }
-                    the_chart.chart[Number(num-1)] = {num: num, title:title, version:version, artist:artist};
-
+                    
                     look4mp3_results = [];
                     look4mp3_results.push(look_for_mp3(artist, title, version, true));
                     look4mp3_results.push(look_for_mp3(artist, title, "", true));
@@ -249,6 +248,12 @@
                             juno_search_links.push(artist_elms[0].href); // collect juno search links if no mp3 found
                         }
                     }
+                    // for download chart json
+                    let the_mp3_file_4json = the_mp3_file;
+                    if (hit_ratio < 0.8) {
+                        the_mp3_file_4json = ""; // regard as not found
+                    }
+                    the_chart.chart[Number(num-1)] = {num: num, title:title, version:version, artist:artist, mp3_file:the_mp3_file_4json};
                 }
             });
             if (the_chart.chart.length) {
