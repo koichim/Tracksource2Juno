@@ -27,11 +27,15 @@ class pycolor:
 
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
 
+
 #This script is assumed to run in Downloads/mp3 or music/20xx/
 new_mp3_tracks_dir = os.path.join("tracks", "mp3")
 #chart_json_files = ["2023-10-06_Milk Sugar_Milk Sugar House Nation playlist.json"]
 chart_json_files = []
 charts = []
+#debug
+#os.chdir("/home/koichi/win-home/Downloads/mp3/")
+#chart_json_files.append("/home/koichi/win-home/Downloads/mp3/2024-02-22_Moby_Moby You Me Chart.json")
 
 argv = sys.argv
 argv.pop(0) # this is the script name
@@ -131,14 +135,14 @@ for a_json in chart_json_files:
         old_json_files[a_chart["json_file"]] = a_json
         
 
-def artist_title_cleansing(str):
+def artist_title_cleansing(str, rm_dup=True):
     str = normalize_unicode(str)
     str = re.sub(r"ø", "o", str) # can not normalize_unicode
     str = re.sub(r"['’´]", "", str) #I'm -> im, Mousse T's -> Mousse Ts
     str = re.sub(r"[^a-zA-Z0-9]", " ", str)
     str = str.lower()
     strs = str.split()
-    strs = list(set(strs)) # remove duplication
+    if rm_dup: strs = list(set(strs)) # remove duplication
     for i, a_str in enumerate(strs[:]):
         if a_str == "presents" or \
             a_str == "pres" or \
@@ -160,9 +164,16 @@ def comp_arrays_rm_match(array_i, array_j):
 def get_album_dir_name(an_mp3_file):
     return os.path.basename(os.path.dirname(os.path.abspath(os.path.join(an_mp3_file, os.path.pardir))))
 
-def look_for_mp3(artist, title, version=""):
+class Look4mp3_result(object):
+    def __init__(self, mp3_file, score, hit_ratio):
+        self.mp3_file = mp3_file
+        self.score = score
+        self.hit_ratio = hit_ratio
+    def __repr__(self):
+        return self.mp3_file
+def look_for_mp3(artist, title, version="", rm_dup=True):
     artist_title = f"{artist} {title} {version}"
-    artist_title_words = artist_title_cleansing(artist_title) 
+    artist_title_words = artist_title_cleansing(artist_title, rm_dup) 
     score = 0 # smallest is the best
     hit_ratio = 0.0
     the_best_mp3_file = ""
@@ -172,7 +183,7 @@ def look_for_mp3(artist, title, version=""):
         if get_album_dir_name(an_mp3_file) != "tracks":
             filename = re.sub(r"^\d+ - (.+ - .+\.mp3)$", r"\1", filename)
         filename = re.sub(r"\.mp3", "", filename)
-        filename_words = artist_title_cleansing(filename)
+        filename_words = artist_title_cleansing(filename, rm_dup)
         total_len = len(filename_words) + len(tmp_artist_title_words)
         hit = 0
         while comp_arrays_rm_match(filename_words, tmp_artist_title_words):
@@ -182,7 +193,7 @@ def look_for_mp3(artist, title, version=""):
             the_best_mp3_file = an_mp3_file
             hit_ratio = hit*2 / total_len
             
-    return the_best_mp3_file, score, hit_ratio
+    return Look4mp3_result(the_best_mp3_file, score, hit_ratio)
     
 referred_mp3_files = []
 for a_chart in charts:
@@ -191,12 +202,14 @@ for a_chart in charts:
     print(pycolor.BLUE+a_chart['chart_url']+pycolor.END)
     for i, a_track in enumerate(a_chart["chart"]):
         if not a_track: continue
-        the_mp3_file, score, hit_ratio = look_for_mp3(a_track['artist'], a_track['title'], version=a_track['version'])
-        the_mp3_file_wo_ver, score_wo_ver, hit_ratio_wo_ver = look_for_mp3(a_track['artist'], a_track['title'])
-        if hit_ratio < hit_ratio_wo_ver:
-            the_mp3_file = the_mp3_file_wo_ver
-            score = score_wo_ver
-            hit_ratio = hit_ratio_wo_ver
+        look4mp3_result = look_for_mp3(a_track['artist'], a_track['title'], version=a_track['version'])
+        look4mp3_result_wo_ver = look_for_mp3(a_track['artist'], a_track['title'])
+        look4mp3_result_skip_dup = look_for_mp3(a_track['artist'], a_track['title'], version=a_track['version'], rm_dup=False)
+        look4mp3_result_list = [ look4mp3_result, look4mp3_result_wo_ver, look4mp3_result_skip_dup]
+        best_look4mp3_result = max(look4mp3_result_list, key=lambda x:x.hit_ratio*x.score)
+        the_mp3_file = best_look4mp3_result.mp3_file
+        score = best_look4mp3_result.score
+        hit_ratio = best_look4mp3_result.hit_ratio
         if a_track['version']:
             logging.info(f"{a_track['num']:>2}------- {a_track['artist']} / {a_track['title']} ({a_track['version']})")
         else:
