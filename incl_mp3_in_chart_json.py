@@ -27,6 +27,14 @@ class pycolor:
 
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
 
+# https://stackoverflow.com/questions/40419276/python-how-to-print-text-to-console-as-hyperlink
+def link(uri, label=None):
+    if label is None: 
+        label = uri
+    parameters = ''
+    # OSC 8 ; params ; URI ST <name> OSC 8 ;; ST 
+    escape_mask = '\033]8;{};{}\033\\{}\033]8;;\033\\'
+    return escape_mask.format(parameters, uri, label)
 
 #This script is assumed to run in Downloads/mp3 or music/20xx/
 new_mp3_tracks_dir = os.path.join("tracks", "mp3")
@@ -198,8 +206,10 @@ def look_for_mp3(artist, title, version="", rm_dup=True):
 referred_mp3_files = []
 for a_chart in charts:
     print("")
-    print(f"{a_chart['chart_title']} by {a_chart['chart_artist']} on {a_chart['date']}")
-    print(pycolor.BLUE+a_chart['chart_url']+pycolor.END)
+    print(pycolor.BLUE+
+          link(a_chart['chart_url'], f"{a_chart['chart_title']} by {a_chart['chart_artist']} on {a_chart['date']}")+
+          pycolor.END)
+    #print(pycolor.BLUE+a_chart['chart_url']+pycolor.END)
     for i, a_track in enumerate(a_chart["chart"]):
         if not a_track: continue
         look4mp3_result = look_for_mp3(a_track['artist'], a_track['title'], version=a_track['version'])
