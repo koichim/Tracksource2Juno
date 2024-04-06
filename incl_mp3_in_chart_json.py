@@ -215,7 +215,7 @@ for a_chart in charts:
         look4mp3_result = look_for_mp3(a_track['artist'], a_track['title'], version=a_track['version'])
         look4mp3_result_wo_ver = look_for_mp3(a_track['artist'], a_track['title'])
         look4mp3_result_skip_dup = look_for_mp3(a_track['artist'], a_track['title'], version=a_track['version'], rm_dup=False)
-        look4mp3_result_list = [ look4mp3_result, look4mp3_result_wo_ver, look4mp3_result_skip_dup]
+        look4mp3_result_list = [look4mp3_result_skip_dup, look4mp3_result, look4mp3_result_wo_ver]
         best_look4mp3_result = max(look4mp3_result_list, key=lambda x:x.hit_ratio*x.score)
         the_mp3_file = best_look4mp3_result.mp3_file
         score = best_look4mp3_result.score

@@ -76,7 +76,7 @@ for a_chart in charts:
                 # update track number and album name of the copied mp3
                 tags = ID3(the_copied_mp3_file)
                 tags['TRCK'] = TRCK(encoding=3, text=u''+an_mp3['num']+'')
-                if re.match(a_chart['chart_artist'], a_chart['chart_title']):
+                if re.match(a_chart['chart_artist'], a_chart['chart_title'], re.IGNORECASE):
                     tags['TALB'] = TALB(encoding=3, text=u"#"+an_mp3['num']+" "+a_chart['chart_title']+"("+a_chart["date"]+")")
                 else:
                     the_chart_artist = a_chart['chart_artist']
