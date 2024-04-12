@@ -77,14 +77,14 @@ for a_chart in charts:
                 tags = ID3(the_copied_mp3_file)
                 tags['TRCK'] = TRCK(encoding=3, text=u''+an_mp3['num']+'')
                 if re.match(a_chart['chart_artist'], a_chart['chart_title'], re.IGNORECASE):
-                    tags['TALB'] = TALB(encoding=3, text=u"#"+an_mp3['num']+" "+a_chart['chart_title']+"("+a_chart["date"]+")")
+                    tags['TALB'] = TALB(encoding=3, text=u"#"+an_mp3['num']+" "+a_chart['chart_title']+" ("+a_chart["date"]+")")
                 else:
                     the_chart_artist = a_chart['chart_artist']
                     if re.search(r"s$", the_chart_artist):
                         the_chart_artist += "'"
                     else:
                         the_chart_artist += "'s"
-                    tags['TALB'] = TALB(encoding=3, text=u"#"+an_mp3['num']+" "+the_chart_artist+" "+a_chart['chart_title']+"("+a_chart["date"]+")")
+                    tags['TALB'] = TALB(encoding=3, text=u"#"+an_mp3['num']+" "+the_chart_artist+" "+a_chart['chart_title']+" ("+a_chart["date"]+")")
                 tags.save()
 
 
