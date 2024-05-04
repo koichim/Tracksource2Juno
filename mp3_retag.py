@@ -174,7 +174,7 @@ for an_mp3_dir in mp3_dir:
             
             tmp_tags = artist_title.split('-')
             if an_mp3_dir == traxsource_dir:
-                if len(a_tag) != 2: # Joy Marquez, Havana Hustlers - Lady (Hear Me Tonight) (Original Drum Mix).mp3
+                if len(tmp_tags) != 2: # Joy Marquez, Havana Hustlers - Lady (Hear Me Tonight) (Original Drum Mix).mp3
                     logging.error(f"maybe bad parsing artist_title from traxsource filename: {os.path.basename(an_mp3_file)}")
             else:
                 if len(tmp_tags) != 4: # 03-Miguel_Migs_feat_Martin_Luther_-_Back_Tonight_(Lovebirds_Disco_Sketch_extended_mix)-320kb_s_MP3.mp3
