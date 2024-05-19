@@ -146,6 +146,7 @@ for a_json in chart_json_files:
 def artist_title_cleansing(str, rm_dup=True):
     str = normalize_unicode(str)
     str = re.sub(r"ø", "o", str) # can not normalize_unicode
+    if rm_dup: str = re.sub(r"['’´]s ", " ", str)
     str = re.sub(r"['’´]", "", str) #I'm -> im, Mousse T's -> Mousse Ts
     str = re.sub(r"[^a-zA-Z0-9]", " ", str)
     str = str.lower()
@@ -212,10 +213,10 @@ for a_chart in charts:
     #print(pycolor.BLUE+a_chart['chart_url']+pycolor.END)
     for i, a_track in enumerate(a_chart["chart"]):
         if not a_track: continue
-        look4mp3_result = look_for_mp3(a_track['artist'], a_track['title'], version=a_track['version'])
-        look4mp3_result_wo_ver = look_for_mp3(a_track['artist'], a_track['title'])
-        look4mp3_result_skip_dup = look_for_mp3(a_track['artist'], a_track['title'], version=a_track['version'], rm_dup=False)
-        look4mp3_result_list = [look4mp3_result_skip_dup, look4mp3_result, look4mp3_result_wo_ver]
+        look4mp3_result_list = []
+        look4mp3_result_list.append(look_for_mp3(a_track['artist'], a_track['title'], version=a_track['version']))
+        #look4mp3_result_list.append(look_for_mp3(a_track['artist'], a_track['title']))
+        look4mp3_result_list.append(look_for_mp3(a_track['artist'], a_track['title'], version=a_track['version'], rm_dup=False))
         best_look4mp3_result = max(look4mp3_result_list, key=lambda x:x.hit_ratio*x.score)
         the_mp3_file = best_look4mp3_result.mp3_file
         score = best_look4mp3_result.score
