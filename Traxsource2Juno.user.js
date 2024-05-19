@@ -10,7 +10,7 @@
 // @grant        GM.xmlHttpRequest
 // @grant        GM.openInTab
 // @author       Koichi Masuda
-// @version      0.28
+// @version      0.31
 // @description replace artist link of Traxsource to Juno's artist search
 // ==/UserScript==
 
@@ -18,8 +18,9 @@
     'use strict';
 
     // Your code here...
-    var CHECK_INTERVAL = 100; // in ms
+    var CHECK_INTERVAL = 500; // in ms
     var JUNO_ARTIST_SERCH_HEADER = "https://www.junodownload.com/search/?facet%5Bmirror_artist_facetm%5D%5B%5D=";
+    var JUNO_ARTIST_SERCH_TRAILER = "&solrorder=date_down&list_view=tracks";
     var TRAXSOURCE_URL = "https://www.traxsource.com/";
     var the_chart = {date:"", chart_artist:"", chart_title:"", chart_url:"", chart:[]};
     var debug=1;
@@ -49,11 +50,11 @@
         }
         let ret_strs = strs.filter(function(a_str){
             if (a_str == "" ||
-                a_str == "extended" ||
+//                a_str == "extended" ||
                 a_str == "remix" ||
                 a_str == "mix" ||
                 a_str == "feat" ||
-                a_str == "original" ||
+//                a_str == "original" ||
                 a_str == "presents" ||
                 a_str == "pres"){
                 return false;
@@ -163,7 +164,7 @@
                     artist_name_array[idx] = encodeURIComponent(elm);
                 });
                 let artist_name = artist_name_array.join('+');
-                let juno_search_link = JUNO_ARTIST_SERCH_HEADER+artist_name;
+                let juno_search_link = JUNO_ARTIST_SERCH_HEADER+artist_name+JUNO_ARTIST_SERCH_TRAILER;
                 //a.attr("href", JUNO_ARTIST_SERCH_HEADER+artist_name);
                 a.replaceWith("<a href=\""+juno_search_link+"\">"+a.text()+"</a>");
                 console.log("Traxsource2Juno: "+a.text()+" -> "+a.attr("href"));
@@ -198,7 +199,7 @@
                     
                     look4mp3_results = [];
                     look4mp3_results.push(look_for_mp3(artist, title, version, true));
-                    look4mp3_results.push(look_for_mp3(artist, title, "", true));
+                    //look4mp3_results.push(look_for_mp3(artist, title, "", true)); // comment out since no version mp3 has hit with track with verion
                     look4mp3_results.push(look_for_mp3(artist, title, version, false));
                     let max_score_x_hit_ratio = 0;
                     let max_indx = 0; // default with version and rm_dup=true
