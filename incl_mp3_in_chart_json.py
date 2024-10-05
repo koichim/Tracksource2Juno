@@ -36,6 +36,9 @@ def link(uri, label=None):
     escape_mask = '\033]8;{};{}\033\\{}\033]8;;\033\\'
     return escape_mask.format(parameters, uri, label)
 
+# create tracks dir anyway. resulting chart jsons will be stored there.
+os.makedirs("tracks", exist_ok=True)
+
 #This script is assumed to run in Downloads/mp3 or music/20xx/
 new_mp3_tracks_dir = os.path.join("tracks", "mp3")
 #chart_json_files = ["2023-10-06_Milk Sugar_Milk Sugar House Nation playlist.json"]
@@ -63,9 +66,9 @@ while argv:
     if os.path.splitext(arg)[1] == ".json":
         chart_json_files.append(arg)
 
-if len(chart_json_files)==0:
-    logging.error("please specify json chart files")
-    sys.exit()
+# if len(chart_json_files)==0:
+#     logging.error("please specify json chart files")
+#     sys.exit()
 
 mp3_tracks_dirs = []
 if os.path.isdir(new_mp3_tracks_dir): mp3_tracks_dirs.append(new_mp3_tracks_dir) # just purchased
