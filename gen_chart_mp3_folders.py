@@ -66,7 +66,8 @@ for a_chart in charts:
                 exsisting_mp3_file = os.path.join(last_year_tracks_dir, an_mp3_file)
             
             if not exsisting_mp3_file:
-                logging.error(f"{exsisting_mp3_file} does not exist...")
+                num = an_mp3.get("num")
+                logging.error(f"{num} - {an_mp3_file} does not exist...")
             elif not os.path.splitext(exsisting_mp3_file)[1] == ".mp3":
                 logging.error(f"{exsisting_mp3_file} is not mp3...")
             else:
