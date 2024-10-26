@@ -10,7 +10,7 @@
 // @grant        GM.xmlHttpRequest
 // @grant        GM.openInTab
 // @author       Koichi Masuda
-// @version      0.31
+// @version      0.32
 // @description replace artist link of Traxsource to Juno's artist search
 // ==/UserScript==
 
@@ -216,12 +216,17 @@
                     let hit_ratio = look4mp3_results[max_indx].hit_ratio;
                     if (0.6 <= hit_ratio){
                         $(num_elm).parent().css({'border-bottom':'0px'});
+                        let mp3_file_div = $(num_elm).parent().clone();
+                        mp3_file_div.html("["+String(Math.trunc(hit_ratio*100))+"%] "+the_mp3_file);
                         let mp3_file_color = '#ccc';
                         if (0.9 <= hit_ratio) {
                             let num_div= $(num_elm).children("div");
                             $(num_div).html("<span title=\""+the_mp3_file+"\">&#x2714;</span>"+$(num_div).html()); // check mark
                             $(num_elm).parent().find('*').css({'color':'#707070'}); // gray out
                             mp3_file_color = '#707070';
+                            if (1 != hit_ratio) {
+                                mp3_file_div.html("<font color=\"white\">["+String(Math.trunc(hit_ratio*100))+"%]</font> "+the_mp3_file);
+                            }
                         } else if (0.8 <= hit_ratio) {
                             mp3_file_color = '#cc9';
                         } else if (0.7 <= hit_ratio) {
@@ -232,9 +237,7 @@
                         if (is_classic) {
                             $(num_elm).parent().find('*').css({'color':'#707000'});
                         }
-                        let mp3_file_div = $(num_elm).parent().clone();
                         mp3_file_div.insertAfter($(num_elm).parent());
-                        mp3_file_div.html("["+String(Math.trunc(hit_ratio*100))+"%] "+the_mp3_file);
                         let offset_left = title_elm[0].offsetLeft; // title_elm.offset().left is absolute in the window
                         mp3_file_div.css({'height':'16px',
                                           'font-size':'10px',
