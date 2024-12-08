@@ -10,7 +10,7 @@
 // @grant        GM.xmlHttpRequest
 // @grant        GM.openInTab
 // @author       Koichi Masuda
-// @version      0.35
+// @version      0.36
 // @description replace artist link of Traxsource to Juno's artist search
 // ==/UserScript==
 
@@ -23,6 +23,7 @@
     var JUNO_ARTIST_SERCH_TRAILER = "&solrorder=date_down&list_view=tracks";
     var TRAXSOURCE_URL = "https://www.traxsource.com/";
     var the_chart = {date:"", chart_artist:"", chart_title:"", chart_url:"", chart:[]};
+    var OPEN_TAB_INTERVAL = 2000;
     var debug=1;
 
     String.prototype.clean =function() {
@@ -273,7 +274,7 @@
                 $("h1.title").append($("<img src=\"https://wwwcdn.junodownload.com/14020302/images/digital/icons/favicon-32x32.png\" "+
                                        "alt=\"jd\" width=\"24\" height=\"24\" style=\"vertical-align: bottom;\"/>").on("click", function(){
                     juno_search_links.forEach(function(href, i, array){
-                        let defer_time = (array.length - i)*1000
+                        let defer_time = (array.length - i)*OPEN_TAB_INTERVAL;
                         setTimeout(function(){
                             console.log("open "+href);
                             GM.openInTab(href, true);
