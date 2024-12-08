@@ -268,7 +268,7 @@
                 the_chart.chart_url = location.href;
                 let filename = the_chart.date + "_" + the_chart.chart_artist.cleansing() + "_" + the_chart.chart_title.cleansing() + ".json";
                 let encoded_chart = encodeURIComponent(JSON.stringify(the_chart, null, 2));
-                $("h1.title").prepend(" (<a id='download_txtfile' download='"+filename+"'>json</a>)");
+                $("h1.title").prepend(" (<a id='download_txtfile' download='"+filename+"'>json</a>) ");
                 $("h1.title").append($("- <img src=\"https://wwwcdn.junodownload.com/14020302/images/digital/icons/favicon-32x32.png\" "+
                                        "alt=\"jd\" width=\"24\" height=\"24\" style=\"vertical-align: bottom;\"/>").on("click", function(){
                     juno_search_links.forEach(function(href, i, array){
