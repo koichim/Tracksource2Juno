@@ -10,7 +10,7 @@
 // @grant        GM.xmlHttpRequest
 // @grant        GM.openInTab
 // @author       Koichi Masuda
-// @version      0.34
+// @version      0.35
 // @description replace artist link of Traxsource to Juno's artist search
 // ==/UserScript==
 
