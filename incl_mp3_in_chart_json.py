@@ -50,13 +50,11 @@ charts = []
 
 argv = sys.argv
 argv.pop(0) # this is the script name
+update_json = False
 while argv:
     arg = argv.pop(0)
-    # if arg == "-u":
-    #     print("Is it OK to modify tag (y ot n):",end="")
-    #     answer = input()
-    #     if answer == 'y':
-    #         tag_update = True
+    if arg == "-u":
+        update_json = True
     #     else:
     #         logging.error(f"wrong answer {answer}. exiting...")
     #         sys.exit()
@@ -253,7 +251,7 @@ for a_chart in charts:
                             pycolor.END)
     
     an_updated_chart_json_file = os.path.join("tracks", a_chart["json_file"])
-    if os.path.exists(an_updated_chart_json_file):
+    if not update_json and os.path.exists(an_updated_chart_json_file):
         print(f"{an_updated_chart_json_file} exists. skip.")
     else:
         with open(an_updated_chart_json_file, 'w') as f:
