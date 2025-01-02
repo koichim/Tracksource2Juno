@@ -23,7 +23,7 @@
     var JUNO_ARTIST_SERCH_TRAILER = "&solrorder=date_down&list_view=tracks";
     var TRAXSOURCE_URL = "https://www.traxsource.com/";
     var the_chart = {date:"", chart_artist:"", chart_title:"", chart_url:"", chart:[]};
-    var OPEN_TAB_INTERVAL = 2000;
+    var OPEN_TAB_INTERVAL = 3000; // in ms
     var debug=1;
 
     String.prototype.clean =function() {
