@@ -98,7 +98,7 @@ for i,an_mp3_album_dir in  enumerate(my_mp3_albums_dirs[:]):
         os.path.basename(an_mp3_album_dir) == "tracks":# or \
         # not re.search(r"^20\d\d-", os.path.basename(an_mp3_album_dir)):
         my_mp3_albums_dirs.remove(an_mp3_album_dir)
-my_mp3_albums_dirs = my_mp3_albums_dirs[:50] # pick recent 50
+my_mp3_albums_dirs = my_mp3_albums_dirs[:100] # pick recent 100
 my_mp3_albums_dirs = list(map(lambda x: os.path.join(x, "mp3"), my_mp3_albums_dirs))
 mp3_tracks_dirs += my_mp3_albums_dirs
 
