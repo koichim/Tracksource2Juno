@@ -43,9 +43,6 @@
         return tmp_str;
     }
     function artist_title_cleansing_array(str, rm_dup){
-        if (str.match(/ - /g).length() == 2) {
-            str = str.replace(/^\d+ - /,"");
-        }
         str = str.cleansing();
         str = str.toLowerCase();
         let strs = str.split(/\s+/);
