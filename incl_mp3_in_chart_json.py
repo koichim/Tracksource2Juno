@@ -146,6 +146,8 @@ for a_json in chart_json_files:
 
 def artist_title_cleansing(str, rm_dup=True):
     str = normalize_unicode(str)
+    if str.count(" - ") == 2: # may include track number at the head of str
+        str = re.sub(r"^\d+ - ", "", str) # remove it if exists
     str = re.sub(r"ø", "o", str) # can not normalize_unicode
     if rm_dup: str = re.sub(r"['’´]s ", " ", str)
     str = re.sub(r"['’´]", "", str) #I'm -> im, Mousse T's -> Mousse Ts

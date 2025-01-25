@@ -43,6 +43,9 @@
         return tmp_str;
     }
     function artist_title_cleansing_array(str, rm_dup){
+        if (str.match(/ - /g).length() == 2) {
+            str = str.replace(/^\d+ - /,"");
+        }
         str = str.cleansing();
         str = str.toLowerCase();
         let strs = str.split(/\s+/);
@@ -90,7 +93,8 @@
         my_mp3_tracks["mp3_tracks"].forEach(function(an_mp3){
             let tmp_artist_title_words = artist_title_words.concat();
             let filename = an_mp3["file"];
-            if (an_mp3["album"] != "tracks"){
+            //if (an_mp3["album"] != "tracks"){
+            if (filename.match(/ - /g)?.length == 2){
                 filename = filename.replace(/^\d+ - (.+ - .+\.mp3)$/, "$1", filename);
             }
             filename = filename.replace(/\.mp3$/, "");
