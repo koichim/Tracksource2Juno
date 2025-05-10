@@ -2,6 +2,7 @@
 // @name         Traxsource2Juno
 // @namespace    Traxsource2Juno
 // @match      https://www.traxsource.com/*
+// @match      https://www.junodownload.com/*
 // @require 　　 https://code.jquery.com/jquery-2.0.0.min.js
 // @require     https://cdn.jsdelivr.net/npm/lodash@4.17.21/lodash.min.js
 // @downloadURL   https://github.com/koichim/Tracksource2Juno/raw/main/Traxsource2Juno.user.js
@@ -10,7 +11,7 @@
 // @grant        GM.xmlHttpRequest
 // @grant        GM.openInTab
 // @author       Koichi Masuda
-// @version      0.39
+// @version      0.40
 // @description replace artist link of Traxsource to Juno's artist search
 // ==/UserScript==
 
@@ -155,7 +156,7 @@
     };
 
 
-    function run(){
+    function trxsrc_run(){
         var juno_search_links = [];
         $("a.com-artists").each(function(idx, elm){
             let a = $(elm);
@@ -297,7 +298,33 @@
         }
     }
 
+    function add_trxsrc_link(parent_node, search_text){
+        let search_title = search_text.replace(/\s+/g, "+");
+        parent_node.append(" <a href=\"https://www.traxsource.com/search?term="+search_title+"\"><img style=\"width:23px; height:23px\"src=\"https://www.traxsource.com/logos-and-images/logo-icon.png\"/></a>");
+    }
+    function juno_run(){
+        if ($(".juno-title")[0]){
+            $(".juno-title").each(function(i, title_node){
+                if ($(title_node).parent().children().length == 1) {
+                    add_trxsrc_link($(title_node).parent(), title_node.innerText);
+                }
+            });
+        }
+        if ($(".product-title")[0]){
+            $(".product-title").each(function(i, title_node){
+                if ($(title_node).children().length == 1) {
+                    add_trxsrc_link($(title_node), title_node.innerText);
+                }
+            });
+        }
+    }
+
     var interval_id = setInterval(function(){
-        run();
+        if (location.hostname.match(/traxsource.com$/i)){
+            trxsrc_run();
+        } else if (location.hostname.match(/junodownload.com$/i)){
+            juno_run();
+        }
+
     },CHECK_INTERVAL);
 //})();
