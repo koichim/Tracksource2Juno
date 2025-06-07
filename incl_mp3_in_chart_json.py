@@ -211,9 +211,16 @@ def look_for_mp3(artist, title, version="", rm_dup=True):
 referred_mp3_files = []
 for a_chart in charts:
     print("")
-    print(pycolor.BLUE+
-          link(a_chart['chart_url'], f"{a_chart['chart_title']} by {a_chart['chart_artist']} on {a_chart['date']}")+
-          pycolor.END)
+    if re.match(a_chart['chart_artist'], a_chart['chart_title'], re.IGNORECASE):
+        chart_name = f"{a_chart['chart_title']} ({a_chart['date']})"
+    else: 
+        the_chart_artist = a_chart['chart_artist']
+        if re.search(r"s$", the_chart_artist):
+            the_chart_artist += "'"
+        else:
+            the_chart_artist += "'s"
+            chart_name = f"{the_chart_artist} {a_chart['chart_title']} ({a_chart['date']})"
+    print(pycolor.BLUE + link(a_chart['chart_url'], chart_name + pycolor.END))
     #print(pycolor.BLUE+a_chart['chart_url']+pycolor.END)
     for i, a_track in enumerate(a_chart["chart"]):
         if not a_track: continue
