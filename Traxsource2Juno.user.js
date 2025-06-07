@@ -2,6 +2,7 @@
 // @name         Traxsource2Juno
 // @namespace    Traxsource2Juno
 // @match      https://www.traxsource.com/*
+// @match      https://www.junodownload.com/*
 // @require 　　 https://code.jquery.com/jquery-2.0.0.min.js
 // @require     https://cdn.jsdelivr.net/npm/lodash@4.17.21/lodash.min.js
 // @downloadURL   https://github.com/koichim/Tracksource2Juno/raw/main/Traxsource2Juno.user.js
@@ -10,7 +11,7 @@
 // @grant        GM.xmlHttpRequest
 // @grant        GM.openInTab
 // @author       Koichi Masuda
-// @version      0.39
+// @version      0.41
 // @description replace artist link of Traxsource to Juno's artist search
 // ==/UserScript==
 
@@ -155,7 +156,7 @@
     };
 
 
-    function run(){
+    function trxsrc_run(){
         var juno_search_links = [];
         $("a.com-artists").each(function(idx, elm){
             let a = $(elm);
@@ -221,7 +222,7 @@
                         let mp3_file_div = $(num_elm).parent().clone();
                         mp3_file_div.html("["+String(Math.trunc(hit_ratio*100))+"%] "+the_mp3_file);
                         let mp3_file_color = '#ccc';
-                        if (0.9 <= hit_ratio) {
+                        if (1.0 <= hit_ratio) {
                             let num_div= $(num_elm).children("div");
                             $(num_div).html("<span title=\""+the_mp3_file+"\">&#x2714;</span>"+$(num_div).html()); // check mark
                             $(num_elm).parent().find('*').css({'color':'#707070'}); // gray out
@@ -249,7 +250,7 @@
                         mp3_file_div.attr('id', "Tracksource2Juno: "+the_mp3_file);
 
                     }
-                    if (hit_ratio < 0.9 && num <= 10) {
+                    if (hit_ratio < 1.0 && num <= 10) {
                         if (artist_elms && artist_elms[0] && artist_elms[0].href) {
                             juno_search_links.push(artist_elms[0].href); // collect juno search links if no mp3 found
                         }
@@ -297,7 +298,33 @@
         }
     }
 
+    function add_trxsrc_link(parent_node, search_text){
+        let search_title = search_text.replace(/\s+/g, "+");
+        parent_node.append(" <a href=\"https://www.traxsource.com/search?term="+search_title+"\"><img style=\"width:23px; height:23px; filter: grayscale(100%);\"src=\"https://www.traxsource.com/logos-and-images/logo-icon.png\"/></a>");
+    }
+    function juno_run(){
+        if ($(".juno-title")[0]){
+            $(".juno-title").each(function(i, title_node){
+                if ($(title_node).parent().children().length == 1) {
+                    add_trxsrc_link($(title_node).parent(), title_node.innerText);
+                }
+            });
+        }
+        if ($(".product-title")[0]){
+            $(".product-title").each(function(i, title_node){
+                if ($(title_node).children().length == 1) {
+                    add_trxsrc_link($(title_node), title_node.innerText);
+                }
+            });
+        }
+    }
+
     var interval_id = setInterval(function(){
-        run();
+        if (location.hostname.match(/traxsource.com$/i)){
+            trxsrc_run();
+        } else if (location.hostname.match(/junodownload.com$/i)){
+            juno_run();
+        }
+
     },CHECK_INTERVAL);
 //})();
