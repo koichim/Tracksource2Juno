@@ -219,7 +219,7 @@ for a_chart in charts:
             the_chart_artist += "'"
         else:
             the_chart_artist += "'s"
-            chart_name = f"{the_chart_artist} {a_chart['chart_title']} ({a_chart['date']})"
+        chart_name = f"{the_chart_artist} {a_chart['chart_title']} ({a_chart['date']})"
     print(pycolor.BLUE + link(a_chart['chart_url'], chart_name + pycolor.END))
     #print(pycolor.BLUE+a_chart['chart_url']+pycolor.END)
     for i, a_track in enumerate(a_chart["chart"]):
