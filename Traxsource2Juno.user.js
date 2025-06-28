@@ -390,7 +390,7 @@
                 }
             },
                         };
-            invoke_http_request("GD_search",
+            invoke_http_request("GD_search "+search_str,
                                 "https://www.googleapis.com/drive/v3/files?q="+q,
                                 "",
                                 "GET",
