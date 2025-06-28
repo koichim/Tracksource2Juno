@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Traxsource2Juno
-// @version      0.51
+// @version      0.52
 // @namespace    Traxsource2Juno
 // @match      https://www.traxsource.com/*
 // @match      https://www.junodownload.com/*
@@ -349,7 +349,6 @@
                 GD_poll_ready();
                 $("#Traxsource2Juno_enableGDsearch").on("click", () => {
                     GD_get_auth_code_in_tab();
-                    $.when(GD_ready_promise).done(()=>GD_process());
                 });
             }
         }
@@ -391,7 +390,7 @@
                 }
             },
                         };
-            invoke_http_request("GD_process",
+            invoke_http_request("GD_search",
                                 "https://www.googleapis.com/drive/v3/files?q="+q,
                                 "",
                                 "GET",
@@ -400,24 +399,6 @@
         });
     }
 
-    function GD_process(){
-        let q = " mimeType = 'audio/mpeg'";
-        q = encodeURIComponent(q);
-        let GD_auth_code = GM_getValue("GD_auth_code");
-        let folder_id = "1unILTVnIhi3VsrSWFrOomNAlVM-Fqu9v"; // music_backup folder
-        let headers = {
-            "Content-Type": "application/json",
-            "Authorization": "Bearer "+GD_auth_code.access_token,
-        }
-        let funcs = {onload: (res) => {res_json = JSON.parse(res.responseText);console.log(res_json);},
-                    };
-        invoke_http_request("GD_process",
-                            "https://www.googleapis.com/drive/v3/files?q="+q,
-                            "",
-                            "GET",
-                            headers,
-                            funcs);
-    }
     function GD_get_auth_code_in_tab(){
        /* https://accounts.google.com/o/oauth2/auth?client_id=[クライアントID]&
           redirect_uri=https://localhost:8080&
