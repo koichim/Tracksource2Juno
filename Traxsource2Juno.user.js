@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Traxsource2Juno
-// @version      0.52
+// @version      0.53
 // @namespace    Traxsource2Juno
 // @match      https://www.traxsource.com/*
 // @match      https://www.junodownload.com/*
@@ -14,6 +14,7 @@
 // @grant        GM_openInTab
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @grant        GM_addStyle
 // @author       Koichi Masuda
 // @description replace artist link of Traxsource to Juno's artist search
 // ==/UserScript==
@@ -177,8 +178,17 @@
 
 
     function trxsrc_run(){
-        GD_set_up_and_run();
-
+        GM_addStyle(".GD-offline-init {background-image: url('"+gdrive_icon_url+"');"+
+                        "background-size: contain;"+
+                        "background-repeat: no-repeat;"+
+                        "background-position: center;"+
+                        "mix-blend-mode: exclusion;"+
+                        "filter:grayscale(100%);}"); // 白黒
+        GM_addStyle(".GD-searching {filter:grayscale(0%); animation: blink 1s infinite;}"); // カラー点滅
+        GM_addStyle("@keyframes blink {0% {opacity: 1;} 50% {opacity: 0; /* 透明 */} 100% {opacity: 1;}}");
+        GM_addStyle(".GD-search-notfound {background-image: none; animation: none;}"); // 背景削除、点滅終了
+        GM_addStyle(".GD-search-found {animation: none;}"); // カラー点灯
+        
         var juno_search_links = [];
         $("a.com-artists").each(function(idx, elm){
             let a = $(elm);
@@ -322,6 +332,7 @@
             }
 
         }
+        GD_set_up_and_run();
     }
 
     function GD_poll_ready(){
@@ -334,6 +345,8 @@
                 console.log(GD_auth_code);
                 clearInterval(GD_interval_id);
                 $("#Traxsource2Juno_enableGDsearch").css({filter:"grayscale(0%)"});
+                $(".GD-offline-init").addClass("GD-searching");
+//                $(".GD-offline-init").removeClass("GD-offline-init");
                 GD_ready_promise.resolve();
             }
         },CHECK_INTERVAL);
@@ -354,7 +367,11 @@
         }
     }
     function GD_search(search_str, num_elm){
+        $(num_elm).addClass("GD-offline-init");
         console.log(search_str);
+        // further cleansing
+        search_str = search_str.replace(/'s /g, " ");
+        search_str = search_str.replace(/extended /ig, " ");
         let words = artist_title_cleansing_array(search_str, true);
         let q = "";
         words.forEach((a_word) => {
@@ -380,13 +397,12 @@
             let funcs = {onload: (res) => {
                 res_json = JSON.parse(res.responseText);console.log(res_json);
                 if (res_json.files.length) {
-                    $(num_elm).css({"background-image": "url('"+gdrive_icon_url+"')",
-                                   "background-size": "contain",
-                                   "background-repeat": "no-repeat",
-                                   "background-position": "center",
-                                   "mix-blend-mode": "exclusion"});
+                    $(num_elm).addClass("GD-search-found");
+//                    $(num_elm).removeClass("GD-searching");
                     $(num_elm).attr("title",res_json.files[0].name);
-
+                } else {
+                    $(num_elm).addClass("GD-search-notfound");
+//                    $(num_elm).removeClass("GD-searching");
                 }
             },
                         };
