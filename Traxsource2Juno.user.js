@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Traxsource2Juno
-// @version      0.53
+// @version      0.54
 // @namespace    Traxsource2Juno
 // @match      https://www.traxsource.com/*
 // @match      https://www.junodownload.com/*
@@ -188,7 +188,7 @@
         GM_addStyle("@keyframes blink {0% {opacity: 1;} 50% {opacity: 0; /* 透明 */} 100% {opacity: 1;}}");
         GM_addStyle(".GD-search-notfound {background-image: none; animation: none;}"); // 背景削除、点滅終了
         GM_addStyle(".GD-search-found {animation: none;}"); // カラー点灯
-        
+
         var juno_search_links = [];
         $("a.com-artists").each(function(idx, elm){
             let a = $(elm);
@@ -285,7 +285,10 @@
                     }
                     if (hit_ratio < 0.9 && num <= 10) {
                         if (artist_elms && artist_elms[0] && artist_elms[0].href) {
-                            juno_search_links.push(artist_elms[0].href); // collect juno search links if no mp3 found
+                            let the_href = encodeURIComponent(artist_elms[0].href);
+                            let redirect_the_href = "https://masuda.sppd.ne.jp/redirect.html?url="+the_href;
+//                            let redirect_the_href = "https://masuda.sppd.ne.jp/redirect.html?stop=1&url="+the_href;
+                            juno_search_links.push(redirect_the_href); // collect juno search links if no mp3 found
                         }
                     }
                     // for download chart json
@@ -315,7 +318,7 @@
                         let defer_time = (array.length - i)*OPEN_TAB_INTERVAL;
                         setTimeout(function(){
                             console.log("open "+href);
-                            GM.openInTab(href, true);
+                            GM_openInTab(href, true);
                         }, defer_time);
                     });
                 }));
