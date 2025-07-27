@@ -1,11 +1,13 @@
 // ==UserScript==
 // @name         Traxsource2Juno
-// @version      0.54
+// @version      0.55
 // @namespace    Traxsource2Juno
 // @match      https://www.traxsource.com/*
 // @match      https://www.junodownload.com/*
 // @match      https://masuda.sppd.ne.jp/traxsource2juno/*
 // @require 　　 https://code.jquery.com/jquery-2.0.0.min.js
+// @require      https://code.jquery.com/ui/1.12.0/jquery-ui.min.js
+// @resource     jquery-ui.css  http://code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css
 // @require     https://cdn.jsdelivr.net/npm/lodash@4.17.21/lodash.min.js
 // @downloadURL   https://github.com/koichim/Tracksource2Juno/raw/main/Traxsource2Juno.user.js
 // @updateURL   https://github.com/koichim/Tracksource2Juno/raw/main/Traxsource2Juno.user.js
@@ -19,7 +21,7 @@
 // @description replace artist link of Traxsource to Juno's artist search
 // ==/UserScript==
 
-//(function() {
+(function() {
     'use strict';
 
     // Your code here...
@@ -36,7 +38,78 @@
     var GD_ready_promise = new $.Deferred();
     var gdrive_icon_url="https://fonts.gstatic.com/s/i/productlogos/drive_2020q4/v8/web-64dp/logo_drive_2020q4_color_2x_web_64dp.png";
 
+    function add_tooltip(node, fixed_width=true) {
+        node = $(node);
+        node.each((i, a_node) => {
+            let the_node = $(a_node);
+            if (the_node.attr('show_tooltip') == null) {
+                let the_class = "GD-tooltip";
+//                if (fixed_width) { the_class = "GDtooltip_fixedwidth";}
+                the_node.tooltip({
+                    disabled: true,
+                    tooltipClass: the_class,
+                    items: '[data-tooltip]',
+                    content: function () {
+                        return $(this).attr('data-tooltip');
+                    },
+                    show: null,
+                    open: function(evemt, ui) {
+/*                        let cur_offset = ui.tooltip.offset();
+                        let cur_height = ui.tooltip.outerHeight();
+                        if (cur_offset.top < 0) {
+                            let new_height = cur_height + cur_offset.top; // cur_offset.top is negative
+                            ui.tooltip.height(new_height);
+                            $(".ui-tooltip-content").height(new_height);
+                            ui.tooltip.offset({top:0, left:cur_offset.left});
+                            console.log(ui.tooltip.offset());
+                        }
+                        if ($(window).height() < cur_offset.top+cur_height){
+                            let new_height = $(window).height() - cur_offset.top - (ui.tooltip.outerHeight() - ui.tooltip.height());
+                            ui.tooltip.height(new_height);
+                            $(".ui-tooltip-content").height(new_height);
+                        }*/
+                    },
+                    close: function (event, ui) {
+                        ui.tooltip.hover(
+                            function () {
+                                $(this).stop(true).fadeTo(500, 1);
+                            },
+                            function () {
+                                $(this).fadeOut("500", function () {
+                                    $(this).remove();
+                                })
+                            })
+                    },
+                });
+                the_node.attr('show_tooltip', "false");
+                the_node.on({
+                    "click": function() {
+                        if ($(this).attr('show_tooltip') == "true") {
+                            $(this).tooltip("disable");
+                            $(this).attr('show_tooltip', "false");
+                        } else {
+                            $(this).tooltip("open");
+                            $(this).attr('show_tooltip', "true");
+                        }
 
+                    },
+                    "mouseout": function() {
+                        $(this).tooltip("disable");
+                        $(this).attr('show_tooltip', "false");
+                    },
+                    "mouseover": function() {
+                        if (this.offsetWidth < this.scrollWidth ||
+                            ($(this).attr('data-tooltip') &&
+                             ($(this).attr('data-tooltip').match(/\<br/) || $(this).attr('data-tooltip').match(/\<li\>/)))) {
+                            $(this).css("cursor", "pointer");
+                        } else {
+                            $(this).css("cursor", "auto");
+                        }
+                    }
+                });
+            }
+        });
+    }
 
    function invoke_http_request(dbg_str, url, data, method, headers, funcs){
        GM_xmlhttpRequest({
@@ -47,8 +120,9 @@
            headers: headers,
            nocache: true,
            onload: function (response) {
-               let resp_json = JSON.parse(response.responseText);
+//               let resp_json = JSON.parse(response.responseText);
                console.log(dbg_str+": GM_xmlHttpRequest onload");
+               console.log(response);
                if (funcs && funcs.onload) {funcs.onload(response);}
            },
 /*           onprogress:function(response){
@@ -189,6 +263,13 @@
         GM_addStyle(".GD-search-notfound {background-image: none; animation: none;}"); // 背景削除、点滅終了
         GM_addStyle(".GD-search-found {animation: none;}"); // カラー点灯
 
+//        GM_addStyle(".GD-tooltip {font-family: consolas, osaka-mono; font-size: 80%; white-space: nowrap; width:fit-content; max-width:100%}");
+        GM_addStyle(".GD-tooltip {white-space: nowrap; width:fit-content; max-width:100%;}");
+        GM_addStyle(".GD-tooltip a {color: blue; text-decoration: underline; cursor: pointer;}");
+        GM_addStyle(".GD-tooltip a:hover {color: purple;}");
+        GM_addStyle(".GD-tooltip a:visited {color: purple;}");
+        GM_addStyle(".GD-tooltip-fixedwidth {font-family: consolas, osaka-mono; font-size: 80%; max-width:80%; width:50%; overflow: auto;}");
+
         var juno_search_links = [];
         $("a.com-artists").each(function(idx, elm){
             let a = $(elm);
@@ -232,7 +313,7 @@
                         artist += $(artist_elms[i]).text().clean();
                     }
 
-                    look4mp3_results = [];
+                    let look4mp3_results = [];
                     look4mp3_results.push(look_for_mp3(artist, title, version, true));
                     //look4mp3_results.push(look_for_mp3(artist, title, "", true)); // comment out since no version mp3 has hit with track with verion
                     look4mp3_results.push(look_for_mp3(artist, title, version, false));
@@ -397,18 +478,35 @@
                 "Content-Type": "application/json",
                 "Authorization": "Bearer "+GD_auth_code.access_token,
             }
-            let funcs = {onload: (res) => {
-                res_json = JSON.parse(res.responseText);console.log(res_json);
-                if (res_json.files.length) {
-                    $(num_elm).addClass("GD-search-found");
-//                    $(num_elm).removeClass("GD-searching");
-                    $(num_elm).attr("title",res_json.files[0].name);
-                } else {
-                    $(num_elm).addClass("GD-search-notfound");
-//                    $(num_elm).removeClass("GD-searching");
-                }
-            },
-                        };
+            let funcs = {
+                onload: (res) => {
+                    let res_json = null;
+                    try {
+                        res_json = JSON.parse(res.responseText);console.log(res_json);
+                        console.log(res_json);
+                    } catch {
+                        console.log("GD_search got not json - "+res.responseText);
+                    }
+
+                    if (res_json && res_json.files && res_json.files.length) {
+                        $(num_elm).addClass("GD-search-found");
+                        //                    $(num_elm).removeClass("GD-searching");
+                        let resulting_html = "";
+                        $.each(res_json.files, (i, a_GD_mp3_found) => {
+                            resulting_html += "<a href=\"https://drive.google.com/file/d/"+a_GD_mp3_found.id +"/view?usp=drive_link\">"+
+                                a_GD_mp3_found.name+"</a><br/>";
+                            //https://drive.google.com/file/d/1bUPeBqFS4kXEAmCb8hAs7FUJaxLpNlkg/view?usp=drive_link
+                        });
+                        //resulting_html = resulting_html.replace(/</g, "&lt;");
+                        //resulting_html = resulting_html.replace(/"/g, "&quot;");
+                        $(num_elm).attr("data-tooltip",resulting_html);
+                        add_tooltip(num_elm);
+                    } else {
+                        $(num_elm).addClass("GD-search-notfound");
+                        //                    $(num_elm).removeClass("GD-searching");
+                    }
+                },
+            };
             invoke_http_request("GD_search "+search_str,
                                 "https://www.googleapis.com/drive/v3/files?q="+q,
                                 "",
@@ -561,4 +659,4 @@
             juno_run();
         }
     },CHECK_INTERVAL);
-//})();
+})();
