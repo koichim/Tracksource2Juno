@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Traxsource2Juno
-// @version      0.56
+// @version      0.57
 // @namespace    Traxsource2Juno
 // @match      https://www.traxsource.com/*
 // @match      https://www.junodownload.com/*
@@ -252,6 +252,7 @@
 
 
     function trxsrc_run(){
+        // set some style for results from google drive
         GM_addStyle(".GD-offline-init {background-image: url('"+gdrive_icon_url+"');"+
                         "background-size: contain;"+
                         "background-repeat: no-repeat;"+
@@ -624,37 +625,14 @@
                      {"Content-Type": "application/json"}, //headers
                      funcs);
     }
-/*
-    GM.xmlHttpRequest({
-        // synchronous: true, //同期処理のためのオプションだが、機能しなかったのでコメントアウトした。
-        method: 'GET',
-        url: 'https://masuda.sppd.ne.jp/etc/my_mp3_tracks.json',
-        nocache: true,
-        onload: function (response) {
-            my_mp3_tracks = JSON.parse(response.responseText);
-        },
-        onprogress:function(response){
-            console.log("GM.xmlHttpRequest: onprogress");
-            console.log(response);
-        },
-        onreadystatechange:function(response){
-            console.log("GM.xmlHttpRequest: onreadystatechange");
-            console.log(response);
-        },
-        onerror: function(response){
-            console.log("GM.xmlHttpRequest: error");
-            console.log(response);
-        },
-        onabort:function(response){
-            console.log("GM.xmlHttpRequest: aborted");
-            console.log(response);
-        },
-        ontimeout:function(response){
-            console.log("GM.xmlHttpRequest: ontimeout");
-            console.log(response);
-        }
-    });
-*/
+
+    if (location.hostname.match(/traxsource.com$/i)){
+        // hack reload... why "Bad Gateway" causes?
+        if ($('h1:first') && $('h1:first').html() == "502 Bad Gateway") {
+            location.href = location.href;
+        };
+    }
+
     var interval_id = setInterval(function(){
         if (location.hostname.match(/traxsource.com$/i)){
             trxsrc_run();
