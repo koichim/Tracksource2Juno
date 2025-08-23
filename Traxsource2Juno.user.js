@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Traxsource2Juno
-// @version      0.55
+// @version      0.56
 // @namespace    Traxsource2Juno
 // @match      https://www.traxsource.com/*
 // @match      https://www.junodownload.com/*
@@ -493,9 +493,12 @@
                         //                    $(num_elm).removeClass("GD-searching");
                         let resulting_html = "";
                         $.each(res_json.files, (i, a_GD_mp3_found) => {
-                            resulting_html += "<a href=\"https://drive.google.com/file/d/"+a_GD_mp3_found.id +"/view?usp=drive_link\">"+
+                            //resulting_html += "<a href=\"https://drive.google.com/file/d/"+a_GD_mp3_found.id +"/view?usp=drive_link\">"+
+                            resulting_html += "<a href=\"https://drive.google.com/u/1/uc?id="+a_GD_mp3_found.id +"&export=download\">"+
+                            //resulting_html += "<a href=\"https://drive.google.com/uc?export=download&id="+a_GD_mp3_found.id +"\">"+
                                 a_GD_mp3_found.name+"</a><br/>";
                             //https://drive.google.com/file/d/1bUPeBqFS4kXEAmCb8hAs7FUJaxLpNlkg/view?usp=drive_link
+                            //https://drive.usercontent.google.com/u/1/uc?id=15r2PPDpO_uoTzcZHadjqCytJ1Q_t1hMZ&export=download
                         });
                         //resulting_html = resulting_html.replace(/</g, "&lt;");
                         //resulting_html = resulting_html.replace(/"/g, "&quot;");
