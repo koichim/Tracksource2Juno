@@ -250,8 +250,10 @@ for a_chart in charts:
             a_track["mp3_file"] = the_mp3_file
             referred_mp3_files.append(os.path.basename(the_mp3_file))
 
-        if hit_ratio <= 0.9 and int(a_track["num"]) <= 10:
-            txt_color = pycolor.YELLOW
+        # if hit_ratio <= 0.9 and int(a_track["num"]) <= 10:
+        if hit_ratio < 1.0 and int(a_track["num"]) <= 10:
+            txt_color = pycolor.CYAN
+            if hit_ratio < 0.9: txt_color = pycolor.YELLOW
             if hit_ratio < 0.8: txt_color = pycolor.RED
             logging.warning(txt_color+
                             f"{a_track['num']:>2}------- {a_track['artist']} / {a_track['title']} ({a_track['version']})"+
