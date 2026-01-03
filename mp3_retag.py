@@ -279,7 +279,7 @@ for an_mp3_dir in mp3_dir:
                 new_img_filename = f"cover"
             
             new_mp3_filename = f"{new_mp3_filename[:50]}.mp3"
-            new_img_filename = f"{new_mp3_filename[:50]}.jpg"
+            new_img_filename = f"{new_img_filename[:50]}.jpg"
             
             os.makedirs(new_mp3_dir, exist_ok=True) # this can make deep also for mp3/ or tacks/mp3/
             os.makedirs(new_img_dir, exist_ok=True) # this can make deep also for mp3/ or tacks/cover/
