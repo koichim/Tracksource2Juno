@@ -11,7 +11,8 @@ from PIL import Image
 import unicodedata
 
 
-logging.basicConfig(stream=sys.stderr, level=logging.ERROR)
+#ogging.basicConfig(stream=sys.stderr, level=logging.ERROR)
+logging.basicConfig(stream=sys.stderr, level=logging.DEBUG)
 
 # todo: delayed stderr
 # str = "Silence (feat Sarah McLachlan - Stone Van Brooken, Pete K extended mix)"
@@ -155,9 +156,15 @@ for an_mp3_dir in mp3_dir:
             need_fix = True
             
         if cur_tracknumber and \
-            re.search(r"^\d$", cur_tracknumber):
-            tmp_tracknumber = f"{cur_tracknumber:0>2}"
+            re.search(r"^\d+\/\d+$", cur_tracknumber): # amazon.so.uk has xx/yy where yy is total number
+            tmp_tracknumber = re.sub(r"^(\d+)\/\d+$", r"\1", tmp_tracknumber);
             need_fix = True
+        if cur_tracknumber and \
+            re.search(r"^\d$", cur_tracknumber):
+            tmp_tracknumber = f"{tmp_tracknumber:0>2}"
+            need_fix = True
+            
+        
         
         #need_fix = True #debug
         # extract the data from file name
@@ -263,15 +270,16 @@ for an_mp3_dir in mp3_dir:
             if re.search(traxsource_dir+r"$", an_mp3_dir) or len(mp3_files) < 3:  # assuming tracks
                 new_mp3_dir = os.path.join(tracks_dir, "mp3")
                 new_img_dir = os.path.join(tracks_dir, "cover")
-                new_mp3_filename = f"{artist_in_filename} - {title_in_filename}.mp3"
-                new_img_filename = f"{artist_in_filename} - {title_in_filename}.jpg"                
-                
+                new_mp3_filename = f"{artist_in_filename} - {title_in_filename}"
+                new_img_filename = f"{artist_in_filename} - {title_in_filename}"     
+                new_mp3_filename = f"{new_mp3_filename[:146]}.mp3"
+                new_img_filename = f"{new_mp3_filename[:146]}.jpg"
             else: # assuming album
                 new_mp3_dir = os.path.join(an_mp3_dir, "mp3")
                 new_img_dir = an_mp3_dir
                 new_mp3_filename = f"{tags.get(id3tag_tracknumber).text[0]:0>2} - {artist_in_filename} - {title_in_filename}.mp3"
                 new_img_filename = f"cover.jpg"
-                
+            
             os.makedirs(new_mp3_dir, exist_ok=True) # this can make deep also for mp3/ or tacks/mp3/
             os.makedirs(new_img_dir, exist_ok=True) # this can make deep also for mp3/ or tacks/cover/
             
