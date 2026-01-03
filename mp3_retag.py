@@ -278,8 +278,8 @@ for an_mp3_dir in mp3_dir:
                 new_mp3_filename = f"{tags.get(id3tag_tracknumber).text[0]:0>2} - {artist_in_filename} - {title_in_filename}"
                 new_img_filename = f"cover"
             
-            new_mp3_filename = f"{new_mp3_filename[:50]}.mp3"
-            new_img_filename = f"{new_img_filename[:50]}.jpg"
+            new_mp3_filename = f"{new_mp3_filename[:150]}.mp3"
+            new_img_filename = f"{new_img_filename[:150]}.jpg"
             
             os.makedirs(new_mp3_dir, exist_ok=True) # this can make deep also for mp3/ or tacks/mp3/
             os.makedirs(new_img_dir, exist_ok=True) # this can make deep also for mp3/ or tacks/cover/
