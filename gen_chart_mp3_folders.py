@@ -41,7 +41,7 @@ if len(chart_json_files)==0:
 
 this_year = datetime.datetime.now().year
 this_year_tracks_dir = os.path.join("/mnt", "h", "music", str(this_year))
-last_year_tracks_dir = (os.path.join("/mnt", "h", "music", str(this_year-1))) # last year
+last_year_tracks_dir = os.path.join("/mnt", "h", "music", str(this_year-1)) # last year
 
 for a_json in chart_json_files:
     with open(a_json) as f:
@@ -55,7 +55,9 @@ for a_chart in charts:
     os.mkdir(chart_mp3_dir)
     for an_mp3 in a_chart["chart"]:
         if not an_mp3: continue
-        an_mp3_file = an_mp3.get("mp3_file")
+        an_mp3_file = an_mp3["mp3_file"]
+        if re.match("\/music\/",an_mp3_file):
+            an_mp3_file = os.path.join("/mnt", "h", an_mp3_file[1:]) # remove '/' at head
         if an_mp3_file:
             exsisting_mp3_file = ""
             if os.path.exists(an_mp3_file):

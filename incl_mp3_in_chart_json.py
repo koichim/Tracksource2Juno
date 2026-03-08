@@ -25,6 +25,8 @@ class pycolor:
     INVISIBLE = '\033[08m'
     REVERCE = '\033[07m'
 
+this_year = datetime.datetime.now().year
+
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
 
 # https://stackoverflow.com/questions/40419276/python-how-to-print-text-to-console-as-hyperlink
@@ -44,6 +46,7 @@ new_mp3_tracks_dir = os.path.join("tracks", "mp3")
 #chart_json_files = ["2023-10-06_Milk Sugar_Milk Sugar House Nation playlist.json"]
 chart_json_files = []
 charts = []
+new_mp3_files = []
 #debug
 #os.chdir("/home/koichi/win-home/Downloads/mp3/")
 #chart_json_files.append("/home/koichi/win-home/Downloads/mp3/2024-02-22_Moby_Moby You Me Chart.json")
@@ -68,62 +71,81 @@ while argv:
 #     logging.error("please specify json chart files")
 #     sys.exit()
 
-mp3_tracks_dirs = []
-if os.path.isdir(new_mp3_tracks_dir): mp3_tracks_dirs.append(new_mp3_tracks_dir) # just purchased
-this_year = datetime.datetime.now().year
-my_mp3_this_year_dir = os.path.join("/mnt", "h", "music", str(this_year))
-this_year_tracks_dir = os.path.join(my_mp3_this_year_dir, "tracks", "mp3")
-if os.path.isdir(this_year_tracks_dir) and os.path.abspath(new_mp3_tracks_dir) != this_year_tracks_dir:
-    mp3_tracks_dirs.append(this_year_tracks_dir) # this year
-my_mp3_last_year_dir = os.path.join("/mnt", "h", "music", str(this_year-1))
-mp3_tracks_dirs.append(os.path.join(my_mp3_last_year_dir, "tracks", "mp3")) # last year
+for a_json in chart_json_files:
+    with open(a_json) as f:
+        a_chart = json.load(f)
+        a_chart["json_file"] = os.path.basename(a_json)
+        charts.append(a_chart)
+charts = sorted(charts, key=lambda x: os.path.basename(x["json_file"]))
 
-# search mp3 in albums also
-my_mp3_purchased_albums_dirs = []
-if os.path.abspath(".") != os.path.abspath(my_mp3_this_year_dir):
-    # probably in Downlaod/mp3
-    my_mp3_purchased_albums_dirs = os.listdir(".")
-    my_mp3_purchased_albums_dirs = list(map(lambda x: os.path.join(os.path.abspath("."), x), my_mp3_purchased_albums_dirs))
-if os.path.isdir(my_mp3_this_year_dir):
-    my_mp3_this_year_albums_dirs = os.listdir(my_mp3_this_year_dir)
-    my_mp3_this_year_albums_dirs = list(map(lambda x: os.path.join(my_mp3_this_year_dir, x), my_mp3_this_year_albums_dirs))
-else: my_mp3_this_year_albums_dirs = []
-my_mp3_last_year_albums_dirs = os.listdir(my_mp3_last_year_dir) # must exist
-my_mp3_last_year_albums_dirs = list(map(lambda x: os.path.join(my_mp3_last_year_dir, x), my_mp3_last_year_albums_dirs))
-my_mp3_albums_dirs = my_mp3_purchased_albums_dirs + my_mp3_this_year_albums_dirs + my_mp3_last_year_albums_dirs
-my_mp3_albums_dirs = list(set(my_mp3_albums_dirs)) # there would be two "tracks"
-my_mp3_albums_dirs = sorted(my_mp3_albums_dirs, reverse=True, key=lambda x: os.path.basename(x))
-for i,an_mp3_album_dir in  enumerate(my_mp3_albums_dirs[:]):
-    if not os.path.isdir(an_mp3_album_dir) or \
-        os.path.basename(an_mp3_album_dir) == "tracks":# or \
-        # not re.search(r"^20\d\d-", os.path.basename(an_mp3_album_dir)):
-        my_mp3_albums_dirs.remove(an_mp3_album_dir)
-my_mp3_albums_dirs = my_mp3_albums_dirs[:100] # pick recent 100
-my_mp3_albums_dirs = list(map(lambda x: os.path.join(x, "mp3"), my_mp3_albums_dirs))
-mp3_tracks_dirs += my_mp3_albums_dirs
+def enum_mp3_file_candidates(the_year): # the_year must be int
+    # include tracks dirs
+    mp3_tracks_dirs = []
+    if os.path.isdir(new_mp3_tracks_dir): mp3_tracks_dirs.append(new_mp3_tracks_dir) # just purchased
+    the_year_dir = os.path.join("/mnt", "h", "music", str(the_year))
+    the_year_tracks_dir = os.path.join(the_year_dir, "tracks", "mp3")
+    if os.path.isdir(the_year_tracks_dir) and os.path.abspath(new_mp3_tracks_dir) != the_year_tracks_dir:
+        mp3_tracks_dirs.append(the_year_tracks_dir) # this year
+    previous_year_dir = os.path.join("/mnt", "h", "music", str(the_year-1))
+    mp3_tracks_dirs.append(os.path.join(previous_year_dir, "tracks", "mp3")) # last year
+    next_year_dir = os.path.join("/mnt", "h", "music", str(the_year+1))
+    if os.path.isdir(next_year_dir):
+        mp3_tracks_dirs.append(os.path.join(next_year_dir, "tracks", "mp3")) # next year
 
 
+    # search mp3 in albums also
+    my_mp3_purchased_album_dirs = []
+    if re.search(os.path.join("Download","mp3/"),os.path.curdir):
+        # in Downlaod/mp3
+        my_mp3_purchased_album_dirs = os.listdir(".")
+        my_mp3_purchased_album_dirs = list(map(lambda x: os.path.join(os.path.abspath("."), x), my_mp3_purchased_album_dirs))
+    my_mp3_album_dirs_of_the_year = []
+    if os.path.isdir(the_year_dir):
+        my_mp3_album_dirs_of_the_year = os.listdir(the_year_dir)
+        my_mp3_album_dirs_of_the_year = list(map(lambda x: os.path.join(the_year_dir, x), my_mp3_album_dirs_of_the_year))
+    my_mp3_album_dir_of_previous_year = []
+    if os.path.isdir(previous_year_dir):
+        my_mp3_album_dir_of_previous_year = os.listdir(previous_year_dir) # must exist
+        my_mp3_album_dir_of_previous_year = list(map(lambda x: os.path.join(previous_year_dir, x), my_mp3_album_dir_of_previous_year))
+    my_mp3_album_dir_of_next_year = []
+    if os.path.isdir(next_year_dir):
+        my_mp3_album_dir_of_next_year = os.listdir(next_year_dir) 
+        my_mp3_album_dir_of_next_year = list(map(lambda x: os.path.join(next_year_dir, x), my_mp3_album_dir_of_next_year))
+    my_mp3_album_dirs = my_mp3_purchased_album_dirs + my_mp3_album_dirs_of_the_year + my_mp3_album_dir_of_previous_year + my_mp3_album_dir_of_next_year
+    my_mp3_album_dirs = list(set(my_mp3_album_dirs)) # there would be two "tracks"
+    my_mp3_album_dirs = sorted(my_mp3_album_dirs, reverse=True, key=lambda x: os.path.basename(x))
+    for i,an_mp3_dir in enumerate(my_mp3_album_dirs[:]):
+        if not os.path.isdir(an_mp3_dir) or \
+            os.path.basename(an_mp3_dir) == "tracks":# or \
+            # not re.search(r"^20\d\d-", os.path.basename(an_mp3_album_dir)):
+            my_mp3_album_dirs.remove(an_mp3_dir)
+    if the_year == this_year:
+        my_mp3_album_dirs = my_mp3_album_dirs[:100] # pick recent 100
+    my_mp3_album_dirs = list(map(lambda x: os.path.join(x, "mp3"), my_mp3_album_dirs))
+    mp3_tracks_dirs += my_mp3_album_dirs
 
-mp3_files = []
-new_mp3_files = []
-for an_mp3_dir in mp3_tracks_dirs:
-    if not os.path.isdir(an_mp3_dir):
-        print(f"{an_mp3_dir} is not DIR name. Skip.")
-        continue
-    logging.debug(f"DIR: {an_mp3_dir} ")
-    files = os.listdir(an_mp3_dir)
-    for a_file in files:
-        if os.path.splitext(a_file)[1] == ".mp3":
-            # check dup since already copied to music/20xx/tracks
-            dup = False
-            for a_file_already_in in mp3_files:
-                if os.path.basename(a_file_already_in) == a_file:
-                    dup = True
-                    break
-            if not dup:
-                mp3_files.append(os.path.join(an_mp3_dir, a_file))
-        if an_mp3_dir == new_mp3_tracks_dir:
-            new_mp3_files.append(a_file)
+    mp3_files_of_the_year = []
+    new_mp3_files = []  
+    for an_mp3_dir in mp3_tracks_dirs:
+        if not os.path.isdir(an_mp3_dir):
+            print(f"{an_mp3_dir} is not DIR name. Skip.")
+            continue
+        logging.debug(f"DIR: {an_mp3_dir} ")
+        files = os.listdir(an_mp3_dir)
+        for a_file in files:
+            if os.path.splitext(a_file)[1] == ".mp3":
+                # check dup since already copied to music/20xx/tracks
+                dup = False
+                for a_file_already_in in mp3_files_of_the_year:
+                    if os.path.basename(a_file_already_in) == a_file:
+                        dup = True
+                        break
+                if not dup:
+                    mp3_files_of_the_year.append(os.path.join(an_mp3_dir, a_file))
+            if the_year == this_year and an_mp3_dir == new_mp3_tracks_dir:
+                new_mp3_files.append(a_file)
+    
+    return mp3_files_of_the_year
 
 def normalize_unicode(words: str) -> str:
     unicode_words = ""
@@ -134,15 +156,6 @@ def normalize_unicode(words: str) -> str:
         if unicodedata.category(character) != "Mn":
             unicode_words += character
     return unicode_words
-
-old_json_files = {}
-for a_json in chart_json_files:
-    with open(a_json) as f:
-        a_chart = json.load(f)
-        a_chart["json_file"] = os.path.basename(a_json)
-        charts.append(a_chart)
-        old_json_files[a_chart["json_file"]] = a_json
-        
 
 def artist_title_cleansing(str, rm_dup=True):
     str = normalize_unicode(str)
@@ -209,9 +222,16 @@ def look_for_mp3(artist, title, version="", rm_dup=True):
             
     return Look4mp3_result(the_best_mp3_file, score, hit_ratio)
     
+mp3_files = []
 referred_mp3_files = []
+prev_chart_year = 0
+the_chart_year = 0
 for a_chart in charts:
     print("")
+    # the json filename must start with year, 20xx
+    the_chart_year = int(a_chart["json_file"][:4])
+    if (the_chart_year != prev_chart_year):
+        mp3_files = enum_mp3_file_candidates(the_chart_year)
     if re.match(a_chart['chart_artist'], a_chart['chart_title'], re.IGNORECASE):
         chart_name = f"{a_chart['chart_title']} ({a_chart['date']})"
     else: 
@@ -239,16 +259,22 @@ for a_chart in charts:
             logging.info(f"{a_track['num']:>2}------- {a_track['artist']} / {a_track['title']}")
         logging.info(f"({score} / {hit_ratio:3.2}){os.path.basename(the_mp3_file)}")
         
-        if 0.8 <= hit_ratio:
+        a_track["mp3_file"] = ""
+        if 0.8 <= hit_ratio and int(a_track["num"]) <=10 or 1 == hit_ratio:
             #if re.search(str(this_year), os.path.dirname(the_mp3_file)):
                 # because new_dir ones incl. json will be moved to this_year dir. 
-                # so, new and this year mp3 can be point to rerative path.
+                # so, new and this year mp3 can be point to rerltive path.
                 #the_mp3_file = os.path.join(new_mp3_tracks_dir, os.path.basename(the_mp3_file))
-            if re.search(os.path.join("mnt","c","Users","koich","Downloads","mp3"),the_mp3_file):
-                the_mp3_file = the_mp3_file.replace(os.path.join("mnt","c","Users","koich","Downloads","mp3"), 
-                                                    os.path.join("mnt","h","music",str(this_year)))
+            #if re.search(os.path.join("mnt","c","Users","koich","Downloads","mp3"),the_mp3_file):
+            #    the_mp3_file = the_mp3_file.replace(os.path.join("mnt","c","Users","koich","Downloads","mp3"), 
+            #                                        os.path.join("mnt","h","music",str(this_year)))
+            if re.match(new_mp3_tracks_dir, the_mp3_file):
+                the_mp3_file = os.path.join(str(this_year),the_mp3_file)
+            if re.match(os.path.join("/mnt", "h"), the_mp3_file):
+                the_mp3_file = the_mp3_file.replace(os.path.join("/mnt", "h"),"")
             a_track["mp3_file"] = the_mp3_file
-            referred_mp3_files.append(os.path.basename(the_mp3_file))
+            if the_chart_year == this_year: 
+                referred_mp3_files.append(os.path.basename(the_mp3_file))
 
         # if hit_ratio <= 0.9 and int(a_track["num"]) <= 10:
         if hit_ratio != 1.0 and int(a_track["num"]) <= 10:
@@ -268,55 +294,55 @@ for a_chart in charts:
     else:
         with open(an_updated_chart_json_file, 'w') as f:
             json.dump(a_chart, f, ensure_ascii=False, indent=4, sort_keys=False, separators=(',', ': '))
-    # if not os.path.abspath(an_updated_chart_json_file) == os.path.abspath(old_json_files[a_chart["json_file"]]):
-    #     os.remove(old_json_files[a_chart["json_file"]])
-
-
-print("******* sftp.put my_mp3_tracks.json to SPPD *******")
-my_mp3_tracks = {"date": f"{datetime.datetime.now().year}-{datetime.datetime.now().month}-{datetime.datetime.now().day}",
-                 "mp3_tracks":[]}
-for an_mp3_file in mp3_files:
-    album_name = get_album_dir_name(an_mp3_file)
-    my_mp3_tracks["mp3_tracks"].append({"file":os.path.basename(an_mp3_file), "album":album_name})
-tmp_my_mp3_js_file = os.path.join("/tmp", "my_mp3_tracks.json")
-with open(tmp_my_mp3_js_file, 'w') as f:
-    json.dump(my_mp3_tracks, f, ensure_ascii=False, indent=4, sort_keys=False, separators=(',', ': '))
-#textfile.insert(tmp_my_mp3_js_file, 'const my_mp3_tracks = \n', line=0)
-#textfile.append(tmp_my_mp3_js_file, ';\n')
-
-sppd_host="masuda.sppd.ne.jp"
-sppd_username=os.environ.get("SPPD_USERNAME")
-sppd_password=os.environ.get("SPPD_PASSWD")
-if not sppd_username or not sppd_password:
-    logging.error("no sppd username/passwd info")
-else:
-    client = paramiko.SSHClient()
-    client.load_system_host_keys()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    client.connect(hostname=sppd_host, username=sppd_username, password=sppd_password, timeout=10, look_for_keys=False)
     
-    try:
-        # SFTPセッション開始
-        sftp_connection = client.open_sftp()
-    
-        # ローカルPCからリモートサーバーへファイルを転送
-        sftp_connection.put(tmp_my_mp3_js_file, "www/etc/my_mp3_tracks.json")
-    finally:
-        client.close()
-        print("done")
+    prev_chart_year = the_chart_year
+
+if the_chart_year == this_year:
+    print("******* sftp.put my_mp3_tracks.json to SPPD *******")
+    my_mp3_tracks = {"date": f"{datetime.datetime.now().year}-{datetime.datetime.now().month}-{datetime.datetime.now().day}",
+                    "mp3_tracks":[]}
+    for an_mp3_file in mp3_files:
+        album_name = get_album_dir_name(an_mp3_file)
+        my_mp3_tracks["mp3_tracks"].append({"file":os.path.basename(an_mp3_file), "album":album_name})
+    tmp_my_mp3_js_file = os.path.join("/tmp", "my_mp3_tracks.json")
+    with open(tmp_my_mp3_js_file, 'w') as f:
+        json.dump(my_mp3_tracks, f, ensure_ascii=False, indent=4, sort_keys=False, separators=(',', ': '))
+    #textfile.insert(tmp_my_mp3_js_file, 'const my_mp3_tracks = \n', line=0)
+    #textfile.append(tmp_my_mp3_js_file, ';\n')
+
+    sppd_host="masuda.sppd.ne.jp"
+    sppd_username=os.environ.get("SPPD_USERNAME")
+    sppd_password=os.environ.get("SPPD_PASSWD")
+    if not sppd_username or not sppd_password:
+        logging.error("no sppd username/passwd info")
+    else:
+        client = paramiko.SSHClient()
+        client.load_system_host_keys()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(hostname=sppd_host, username=sppd_username, password=sppd_password, timeout=10, look_for_keys=False)
         
+        try:
+            # SFTPセッション開始
+            sftp_connection = client.open_sftp()
+        
+            # ローカルPCからリモートサーバーへファイルを転送
+            sftp_connection.put(tmp_my_mp3_js_file, "www/etc/my_mp3_tracks.json")
+        finally:
+            client.close()
+            print("done")
+            
 
-# look for new mp3 files not included in json
-print("******* unreferred new mp3 file check *******")
-referred_mp3_files_set = set(referred_mp3_files) # remoev dup
-for i, a_new_mp3_file in enumerate(new_mp3_files[:]):
-    for a_referred_mp3_file in referred_mp3_files_set:
-        if a_new_mp3_file == a_referred_mp3_file:
-            new_mp3_files.remove(a_new_mp3_file)
+    # look for new mp3 files not included in json
+    print("******* unreferred new mp3 file check *******")
+    referred_mp3_files_set = set(referred_mp3_files) # remove dup
+    for i, a_new_mp3_file in enumerate(new_mp3_files[:]):
+        for a_referred_mp3_file in referred_mp3_files_set:
+            if a_new_mp3_file == a_referred_mp3_file:
+                new_mp3_files.remove(a_new_mp3_file)
 
-if len(new_mp3_files) == 0:
-    print("none!")
-else:
-    for an_unreferred_mp3_file in new_mp3_files:
-        print(pycolor.YELLOW+an_unreferred_mp3_file+pycolor.END)
+    if len(new_mp3_files) == 0:
+        print("none!")
+    else:
+        for an_unreferred_mp3_file in new_mp3_files:
+            print(pycolor.YELLOW+an_unreferred_mp3_file+pycolor.END)
 
