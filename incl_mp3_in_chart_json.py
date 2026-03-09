@@ -53,11 +53,14 @@ new_mp3_files = []
 
 argv = sys.argv
 argv.pop(0) # this is the script name
-update_json = False
+update_json = True
+full_album_search = False #if True, do full album rearch for previous/this/next years. Otherwise, recent 100 albums are searched
 while argv:
     arg = argv.pop(0)
-    if arg == "-u":
-        update_json = True
+    if arg == "-a":
+        full_album_search = True
+    #if arg == "-u":
+    #    update_json = True
     #     else:
     #         logging.error(f"wrong answer {answer}. exiting...")
     #         sys.exit()
@@ -119,7 +122,8 @@ def enum_mp3_file_candidates(the_year): # the_year must be int
             os.path.basename(an_mp3_dir) == "tracks":# or \
             # not re.search(r"^20\d\d-", os.path.basename(an_mp3_album_dir)):
             my_mp3_album_dirs.remove(an_mp3_dir)
-    if the_year == this_year:
+    #if the_year == this_year:
+    if not full_album_search:
         my_mp3_album_dirs = my_mp3_album_dirs[:100] # pick recent 100
     my_mp3_album_dirs = list(map(lambda x: os.path.join(x, "mp3"), my_mp3_album_dirs))
     mp3_tracks_dirs += my_mp3_album_dirs
