@@ -1,0 +1,402 @@
+/* --- 1. Base & Container --- */
+body {
+    background-color: #333;
+    font-family: "Lato", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+#flat-black-player {
+    position: relative;
+    background-color: #000;
+    width: 100%;
+    max-width: 450px;
+    margin-top: 40px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+/* --- 2. Player Top (Cover Art) --- */
+.player-top {
+    position: relative;
+    line-height: 0;
+}
+
+.album-art {
+    width: 100%;
+    height: 370px;
+    object-fit: cover;
+}
+
+/* --- 3. Progress Bar (Original Design) --- */
+#player-progress-bar-container {
+    width: 100%;
+    height: 6px;
+    /* 理想のサンプルより少し太めに */
+    background-color: #111;
+    position: relative;
+    margin-top: -6px;
+}
+
+progress.amplitude-song-played-progress {
+    width: 100%;
+    appearance: none;
+    -webkit-appearance: none;
+    height: 6px;
+    display: block;
+    position: absolute;
+    top: 0;
+    z-index: 10;
+    border: none;
+    background: transparent;
+}
+
+progress.amplitude-song-played-progress::-webkit-progress-bar {
+    background: none;
+}
+
+progress.amplitude-song-played-progress::-webkit-progress-value {
+    background: white;
+}
+
+progress.amplitude-song-played-progress::-moz-progress-bar {
+    background: white;
+}
+
+/* --- 4. Player Middle (Info & Time) --- */
+#player-middle {
+    background-color: #000;
+    padding: 25px 15px;
+    text-align: center;
+    position: relative;
+}
+
+.now-playing-title {
+    display: block;
+    font-size: 18px;
+    color: #FFF;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+}
+
+.now-playing-artist {
+    display: block;
+    font-size: 14px;
+    color: #55b560;
+    /* Flat Black Green */
+    opacity: 0.8;
+}
+
+.time-container {
+    color: #666;
+    font-size: 12px;
+    margin-top: 15px;
+    display: flex;
+    justify-content: space-between;
+}
+
+/* --- 5. Controls (CUSTOM: Thicker & Larger) --- */
+.controls {
+    display: flex;
+    justify-content: center; /* 横方向の中央寄せ */
+    align-items: center;     /* 縦方向のド真ん中寄せ（これで高さが揃います） */
+    width: 100%;
+    padding: 30px 0;
+    background-color: #000;
+    gap: 15px; /* アイコン同士の間隔を一定に固定 */
+}
+
+/* 中央の再生・一時停止ボタン (直径52px・太線) */
+.amplitude-play-pause {
+    width: 52px !important;
+    height: 52px !important;
+    border: 4px solid #FFF !important;
+    border-radius: 50%;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    cursor: pointer;
+    flex-shrink: 0; /* サイズを勝手に変えさせない */
+    box-sizing: border-box;
+    /* 余計な margin をリセット */
+    margin: 0 10px !important;
+}
+
+* 中央アイコン：円の中でさらに中央寄せ */
+.amplitude-play-pause svg {
+    width: 28px !important;
+    height: 28px !important;
+    fill: #FFF;
+    display: block;
+}
+
+/* 再生アイコン（三角形）の微調整：円の中心に見えるように */
+.amplitude-play-pause .play-icon {
+    transform: translateX(2px);
+}
+
+/* 前後・シャッフル・リピートボタンの共通設定 */
+.amplitude-prev, .amplitude-next, .amplitude-shuffle, .amplitude-repeat {
+    cursor: pointer;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 32px;  /* クリック領域を確保 */
+    height: 32px;
+    margin: 0 !important; /* 既存の margin を消して gap で制御 */
+}
+/* 各アイコンのサイズ指定 */
+.amplitude-prev svg, .amplitude-next svg {
+    width: 24px !important;
+    height: 24px !important;
+    fill: #FFF;
+}
+
+.amplitude-shuffle svg, .amplitude-repeat svg {
+    width: 18px !important;
+    height: 18px !important;
+    fill: #666; /* デフォルトは少し暗く */
+}
+
+/* ONの時の色 (Flat Black Green) */
+.amplitude-shuffle.amplitude-shuffle-on svg,
+.amplitude-repeat.amplitude-repeat-on svg {
+    fill: #55b560 !important;
+}
+
+#playlist-toggle {
+    position: absolute;
+    top: 25px;       /* 上端からの距離 */
+    right: 25px;     /* 右端からの距離 */
+    width: 28px;     /* 少し押しやすくサイズアップ */
+    height: 20px;
+    cursor: pointer;
+    z-index: 1000;   /* プレイヤーやカバーアートより手前に表示 */
+    display: flex !important;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+/* 三本線の棒（スパン）の設定 */
+#playlist-toggle span {
+    display: block;
+    width: 100%;
+    height: 2px;
+    background-color: #FFF;
+    transition: all 0.3s ease;
+    pointer-events: none; /* ボタン自体のクリックを邪魔しない */
+}
+
+/* プレイリストが開いている時の「×」アニメーション（お好みで） */
+.playlist-open #playlist-toggle span:nth-child(1) {
+    transform: translateY(9px) rotate(45deg);
+}
+.playlist-open #playlist-toggle span:nth-child(2) {
+    opacity: 0;
+}
+.playlist-open #playlist-toggle span:nth-child(3) {
+    transform: translateY(-9px) rotate(-45deg);
+}
+
+/* --- 6. Playlist (Over-screen) --- */
+#track_list {
+    display: none;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #141920; /* プレイリスト全体の背景 */
+    z-index: 9999;
+    list-style: none;
+    padding: 60px 0 0 0;
+    margin: 0;
+    overflow-y: auto;
+}
+
+.playlist-open #track_list { 
+    display: block; 
+}
+
+/* --- プレイリスト切り替えバー (横長ドロップダウン風) --- */
+#playlist-bar-toggle {
+    width: 100%;
+    background-color: #141920; /* プレイリストと同じ濃紺 */
+    padding: 12px 0;
+    text-align: center;
+    cursor: pointer;
+    border-bottom: 1px solid #333;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    transition: background 0.3s;
+}
+
+#playlist-bar-toggle:hover {
+    background-color: #1c242d;
+}
+
+#playlist-status-text {
+    font-size: 13px;
+    color: #FFF;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+#playlist-arrow {
+    transition: transform 0.3s ease;
+}
+
+/* プレイリストが開いている時の矢印の向き */
+.playlist-open #playlist-arrow {
+    transform: rotate(180deg);
+}
+
+/* リスト本体の基本設定 */
+/* --- プレイリスト本体 (最前面に固定) --- */
+#track_list {
+    display: none; /* 初期状態は非表示 */
+    position: absolute;
+    top: 45px;      /* Show Playlistバーのすぐ下から開始 */
+    left: 0;
+    width: 100%;
+    height: 500px;  /* ★高さを明示的に指定（または calc(100% - 45px)） */
+    background-color: #141920 !important; /* 濃紺で塗りつぶす */
+    z-index: 99999; /* ★他のどの要素よりも手前に持ってくる */
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    overflow-y: auto;
+    border-top: 1px solid #333;
+}
+
+/* 親に .playlist-open が付いた時の強制表示 */
+.playlist-open #track_list {
+    display: block !important;
+}
+
+/* プレイヤーのメインコンテンツ（画像など）を隠さない設定 */
+.player-main-content {
+    position: relative;
+    z-index: 1; /* リストより背面に設定 */
+}
+
+/* 切り替えバーのデザイン微調整 */
+#playlist-bar-toggle {
+    width: 100%;
+    height: 45px;
+    background-color: #141920;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 100000; /* バー自体も最前面に */
+    position: relative;
+}
+/* 矢印の回転 */
+.playlist-open #playlist-arrow {
+    transform: rotate(180deg);
+}
+
+/* 1曲ごとの項目 */
+#track_list li {
+    padding: 12px 20px; /* 20pxから12pxに詰めて行間をスリムに */
+    background-color: #242b33;
+    margin-bottom: 1px;
+    cursor: pointer;
+    border-left: 4px solid transparent;
+    transition: background-color 0.2s, color 0.2s;
+    line-height: 1.3; /* 行の高さも少し抑制 */
+}
+
+/* 曲名の基本（白） */
+#track_list li b {
+    display: block;
+    font-size: 15px;
+    color: #FFFFFF; 
+    font-weight: 500;
+    margin-bottom: 2px;
+}
+
+/* アーティスト名の基本（グレー） */
+#track_list li small {
+    display: block;
+    font-size: 12px;
+    color: #999;
+}
+
+/* ★ 再生中の曲のみの特別スタイル ★ */
+#track_list li.playing {
+    background-color: #1a2129 !important; /* 背景を少し沈める */
+    border-left: 4px solid #55b560;      /* 左端に緑のライン */
+}
+
+#track_list li.playing b {
+    color: #55b560 !important; /* 曲名を鮮やかな緑に変更 */
+    text-shadow: 0 0 8px rgba(85, 181, 96, 0.4); /* わずかに光らせる演出 */
+}
+
+#track_list li.playing small {
+    color: #55b560; /* アーティスト名も薄い緑に合わせる */
+    opacity: 0.7;
+}
+
+#track_list li:hover { 
+    background-color: #30363e; /* ホバー時の明るさ */
+}
+
+/* 曲名の文字設定 */
+#track_list li b {
+    display: block;
+    font-size: 16px;
+    color: #55b560; /* 曲名を Flat Black らしい明るい緑色に */
+    font-weight: bold;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+}
+
+/* アーティスト名の文字設定 */
+#track_list li small {
+    display: block;
+    font-size: 13px;
+    color: #FFFFFF; /* アーティスト名は白にして読みやすく */
+    opacity: 0.6;    /* 少し透過させてサブ情報感を出す */
+    font-weight: 300;
+}
+
+.playlist-open #track_list {
+    display: block;
+}
+
+
+/* --- 7. Setup UI --- */
+.setup-area {
+    width: 100%;
+    max-width: 450px;
+    padding: 15px;
+    box-sizing: border-box;
+}
+
+select,
+button#auth_btn {
+    width: 100%;
+    padding: 12px;
+    background: #222;
+    color: #fff;
+    border: 1px solid #444;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-bottom: 10px;
+}
+
+#status {
+    font-size: 11px;
+    color: #666;
+    text-align: center;
+    margin: 10px 0;
+}
