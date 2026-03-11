@@ -1,34 +1,41 @@
 /* --- 設定エリア --- */
 const CLIENT_ID = '584975721862-ce0db6ved3d295vbeb88k3titfcq5h6n.apps.googleusercontent.com';
-const SCOPES = 'https://www.googleapis.com';
+const SCOPES = 'https://www.googleapis.com/auth/drive.readonly';
 
 
 let tokenClient, gapiInited = false, gisInited = false;
 let currentPlaylist = [], currentTrackIndex = -1, currentYearName = "";
 let currentBlobUrl = null, isLoadingTrack = false;
+let nextTrackIndex = -1;
+let nextBlobUrl = null;
+let nextCoverUrl = null;
+let isPrefetching = false;
 
 const authBtn = document.getElementById('auth_btn');
 const selector = document.getElementById('playlist_selector');
 const trackList = document.getElementById('track_list');
 
-window.togglePlaylistView = function() {
-    console.log("Playlist Toggle Clicked!");
+window.togglePlaylistView = function () {
     const player = document.getElementById('flat-black-player');
     const list = document.getElementById('track_list');
     const text = document.getElementById('playlist-status-text');
 
     if (!player || !list) return;
 
-    // 表示・非表示の切り替え
     const isOpen = player.classList.toggle('playlist-open');
-    list.style.display = isOpen ? 'block' : 'none';
-    if (text) text.innerText = isOpen ? "Close Playlist" : "Show Playlist";
-    
-    console.log("Current State: ", isOpen);
-};
 
-/* --- ここから下の既存のコード（CLIENT_ID等）はそのまま --- */
-const CLIENT_ID = '...';
+    // 表示・非表示の切り替えとテキストの更新
+    list.style.display = isOpen ? 'block' : 'none';
+
+    if (text) {
+        // ここを TITLE LIST に変更
+        text.innerText = isOpen ? "CLOSE TRACK LIST" : "SHOW TRACK LIST";
+    }
+
+    // 矢印の回転など（既にある場合）
+    const arrow = document.getElementById('playlist-arrow');
+    if (arrow) arrow.style.transform = isOpen ? "rotate(180deg)" : "rotate(0deg)";
+};
 
 function updateStatus(msg) {
     console.log("Jukebox Status:", msg);
@@ -71,9 +78,11 @@ async function initApp() {
                     }
                 },
                 song_ended: function () {
+                    console.log("Song ended. Moving to next track...");
                     playWithAmplitude(currentTrackIndex + 1);
                 }
-            });
+            }
+        });
     }
 
     try {
@@ -180,124 +189,352 @@ async function findTracksFolder(yearId, yearName) {
 // 3. リスト表示
 selector.onchange = async (e) => {
     if (!e.target.value) return;
-    updateStatus("Loading JSON...");
+
+    updateStatus("Loading New Playlist...");
+
+    // 1. もし再生中なら一旦止める（任意）
+    if (typeof Amplitude !== 'undefined') {
+        Amplitude.pause();
+    }
+
     const data = JSON.parse(e.target.value);
     const res = await gapi.client.drive.files.get({ fileId: data.id, alt: 'media' });
     currentPlaylist = res.result.chart;
-    currentYearName = data.year;
+
+    // 2. リストを新しい内容で描き直す
     renderList();
+
+    // 3. プレイヤーを表示させる
+    const player = document.getElementById('flat-black-player');
+    if (player) {
+        player.style.display = 'flex'; // 再表示
+        // PC表示の場合は block になるよう、CSSのメディアクエリに合わせる
+        if (window.innerWidth > 500) {
+            player.style.display = 'block';
+        }
+    }
+
+    updateStatus("Ready: " + data.year);
 };
+
 
 function renderList() {
     trackList.innerHTML = '';
     currentPlaylist.forEach((track, index) => {
-        const isEmpty = !track.mp3_file || track.mp3_file === "";
-        const li = document.createElement('li');
-        li.classList.add('amplitude-song-container');
-        li.id = `track-${index}`;
-        if (isEmpty) li.style.opacity = "0.3";
-        li.innerHTML = `<div class="meta-container"><b>${track.num}. ${track.title}</b><br><small>${track.artist}</small></div>`;
+        const fullTitle = track.version ? `${track.title} (${track.version})` : track.title;
 
-        li.addEventListener('click', function () {
-            if (!isEmpty) {
-                // UI上のプレイリストを閉じる（CSS/HTML側で制御している場合）
-                document.getElementById('flat-black-player').classList.remove('playlist-open');
+        // mp3_file が存在するかチェック
+        const hasFile = track.mp3_file && track.mp3_file.trim() !== "";
+
+        const li = document.createElement('li');
+        li.id = `track-${index}`;
+
+        // ファイルがない場合は 'disabled' クラスを付与
+        if (!hasFile) {
+            li.classList.add('disabled');
+        }
+
+        li.innerHTML = `
+            <div class="meta-container" style="${!hasFile ? 'opacity: 0.4;' : ''}">
+                <b>${track.num}. ${fullTitle}</b><br>
+                <small>${track.artist}</small>
+            </div>`;
+
+        // クリックイベントの設定
+        li.onclick = function () {
+            // ファイルがある場合のみ再生処理を実行
+            if (hasFile) {
                 playWithAmplitude(index);
+
+                // リストを閉じる処理
+                const list = document.getElementById('track_list');
+                const player = document.getElementById('flat-black-player');
+                const text = document.getElementById('playlist-status-text');
+                if (list) list.style.display = 'none';
+                if (player) player.classList.remove('playlist-open');
+                if (text) text.innerText = "SHOW TRACK LIST";
+                const arrow = document.getElementById('playlist-arrow');
+                if (arrow) arrow.style.transform = "rotate(0deg)";
+            } else {
+                console.log("This track has no MP3 file.");
             }
-        });
+        };
         trackList.appendChild(li);
     });
-    updateStatus("Tracklist Ready.");
+}
+
+function updateMarquee() {
+    const title = document.getElementById('now-playing-title');
+    const wrapper = document.querySelector('.title-wrapper');
+    if (!title || !wrapper) return;
+
+    title.classList.remove('is-marquee');
+
+    setTimeout(() => {
+        // 文字の幅が、表示窓(wrapper)の幅より大きいか判定
+        if (title.scrollWidth > wrapper.offsetWidth) {
+            title.classList.add('is-marquee');
+        }
+    }, 100);
+}
+
+/**
+ * 現在の曲の次の「有効な曲」をバックグラウンドでダウンロードし、
+ * Blob URL を変数に保持しておく。
+ */
+async function prefetchNextTrack(currentIndex) {
+    if (isPrefetching) return;
+    isPrefetching = true;
+
+    try {
+        let targetIndex = currentIndex + 1;
+
+        // 1. 次に再生可能な（mp3_fileがある）曲を探す
+        while (targetIndex < currentPlaylist.length && !currentPlaylist[targetIndex].mp3_file) {
+            targetIndex++;
+        }
+
+        // リストの最後まで到達していたら終了
+        if (targetIndex >= currentPlaylist.length) {
+            console.log("No more tracks to prefetch.");
+            isPrefetching = false;
+            return;
+        }
+
+        const track = currentPlaylist[targetIndex];
+        const fileName = track.mp3_file.split('/').pop();
+        console.log(`Prefetching start: ${track.title} (${fileName})`);
+
+        // 2. Google Drive からファイルIDを特定
+        const fRes = await gapi.client.drive.files.list({
+            q: `name = '${fileName.replace(/'/g, "\\'")}' and trashed = false`,
+            fields: 'files(id)', pageSize: 1
+        });
+
+        if (fRes.result.files && fRes.result.files.length > 0) {
+            const targetId = fRes.result.files[0].id;
+
+            // 3. バイナリデータを取得（バックグラウンド）
+            const response = await gapi.client.drive.files.get({ fileId: targetId, alt: 'media' });
+
+            const str = response.body;
+            const buf = new Uint8Array(str.length);
+            for (let i = 0; i < str.length; i++) buf[i] = str.charCodeAt(i) & 0xff;
+            const blob = new Blob([buf], { type: 'audio/mpeg' });
+
+            // 4. 古い先読みデータがあれば解放して更新
+            if (nextBlobUrl) URL.revokeObjectURL(nextBlobUrl);
+            if (nextCoverUrl && nextCoverUrl.startsWith('blob:')) URL.revokeObjectURL(nextCoverUrl);
+
+            nextBlobUrl = URL.createObjectURL(blob);
+            nextTrackIndex = targetIndex;
+
+            // 5. カバーアートも先読み（jsmediatags）
+            let coverUrl = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+            try {
+                if (window.jsmediatags) {
+                    const tags = await new Promise((res, rej) => {
+                        window.jsmediatags.read(blob, {
+                            onSuccess: t => res(t.tags),
+                            onError: e => rej(e)
+                        });
+                    });
+                    if (tags && tags.picture) {
+                        const { data, format } = tags.picture;
+                        coverUrl = URL.createObjectURL(new Blob([new Uint8Array(data)], { type: format }));
+                    }
+                }
+            } catch (e) {
+                console.log("Prefetch: Cover art extraction skipped.");
+            }
+
+            nextCoverUrl = coverUrl;
+            console.log(`Prefetch complete: ${track.title}`);
+        } else {
+            console.warn(`Prefetch failed: File not found (${fileName})`);
+        }
+    } catch (e) {
+        console.error("Prefetch process error:", e);
+    } finally {
+        isPrefetching = false;
+    }
 }
 
 // 4. 再生 & スキップロジック
 async function playWithAmplitude(index) {
-    if (isLoadingTrack) return;
+    // タイマーからの呼び出しなどで重なった場合でも、
+    // 前のロードが「現在のインデックスと同じ」ならスキップして進めるようにする
+    if (isLoadingTrack && index === currentTrackIndex) return;
+
     isLoadingTrack = true;
 
     try {
-        let trackFoundAndPlayed = false;
-        // ループ条件を厳密にし、再生成功時は即座に「関数自体を終了」させる
-        while (index < currentPlaylist.length && !trackFoundAndPlayed) {
-            const track = currentPlaylist[index];
-            currentTrackIndex = index;
+        // --- 1. 次の「有効な曲(mp3_fileがある曲)」を探す ---
+        while (index < currentPlaylist.length && !currentPlaylist[index].mp3_file) {
+            index++;
+        }
 
-            if (!track || !track.mp3_file) {
-                index++; continue;
-            }
+        // リストの最後まで到達したら終了
+        if (index >= currentPlaylist.length) {
+            updateStatus("End of Playlist");
+            isLoadingTrack = false;
+            return;
+        }
 
-            const fileName = track.mp3_file.split('/').pop();
-            updateStatus(`Searching: ${fileName}`);
+        const track = currentPlaylist[index];
+        currentTrackIndex = index; // 現在のインデックスを確定
 
-            const fRes = await gapi.client.drive.files.list({
-                q: `name = '${fileName.replace(/'/g, "\\'")}' and trashed = false`,
-                fields: 'files(id)', pageSize: 1
-            });
+        // --- 2. 先読み(Prefetch)済みのURLがあるかチェック ---
+        if (index === nextTrackIndex && nextBlobUrl) {
+            console.log("Using prefetched data for:", track.title);
 
-            if (fRes.result.files && fRes.result.files.length > 0) {
-                const targetId = fRes.result.files[0].id;
-                updateStatus('Downloading...');
+            if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
+            currentBlobUrl = nextBlobUrl;
+            const coverUrl = nextCoverUrl;
 
-                const response = await gapi.client.drive.files.get({ fileId: targetId, alt: 'media' });
+            // 先読み変数をリセット
+            nextBlobUrl = null;
+            nextCoverUrl = null;
+            nextTrackIndex = -1;
 
-                const str = response.body;
-                const buf = new Uint8Array(str.length);
-                for (let i = 0; i < str.length; i++) buf[i] = str.charCodeAt(i) & 0xff;
-                const blob = new Blob([buf], { type: 'audio/mpeg' });
+            // 再生開始
+            startPlayback(index, currentBlobUrl, coverUrl);
+            return; // ここで終了
+        }
 
-                if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
-                currentBlobUrl = URL.createObjectURL(blob);
+        // --- 3. 先読みがない場合、通常通りダウンロード ---
+        const fileName = track.mp3_file.split('/').pop();
+        updateStatus(`Searching: ${fileName}`);
 
-                // --- カバーアート抽出 (エラーが出ても無視するように改良) ---
-                let coverUrl = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
-                try {
-                    if (window.jsmediatags) {
-                        const tags = await new Promise((res, rej) => {
-                            window.jsmediatags.read(blob, { onSuccess: t => res(t.tags), onError: e => rej(e) });
+        const fRes = await gapi.client.drive.files.list({
+            q: `name = '${fileName.replace(/'/g, "\\'")}' and trashed = false`,
+            fields: 'files(id)', pageSize: 1
+        });
+
+        if (fRes.result.files && fRes.result.files.length > 0) {
+            const targetId = fRes.result.files[0].id;
+            updateStatus('Downloading...');
+
+            const response = await gapi.client.drive.files.get({ fileId: targetId, alt: 'media' });
+
+            // バイナリ変換処理
+            const str = response.body;
+            const buf = new Uint8Array(str.length);
+            for (let i = 0; i < str.length; i++) buf[i] = str.charCodeAt(i) & 0xff;
+            const blob = new Blob([buf], { type: 'audio/mpeg' });
+
+            if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
+            currentBlobUrl = URL.createObjectURL(blob);
+
+            // カバーアート抽出
+            let coverUrl = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+            try {
+                if (window.jsmediatags) {
+                    const tags = await new Promise((res, rej) => {
+                        window.jsmediatags.read(blob, {
+                            onSuccess: t => res(t.tags),
+                            onError: e => rej(e)
                         });
-                        if (tags && tags.picture) {
-                            const { data, format } = tags.picture;
-                            coverUrl = URL.createObjectURL(new Blob([new Uint8Array(data)], { type: format }));
-                        }
+                    });
+                    if (tags && tags.picture) {
+                        const { data, format } = tags.picture;
+                        coverUrl = URL.createObjectURL(new Blob([new Uint8Array(data)], { type: format }));
                     }
-                } catch (e) { console.log("Cover art skip."); }
+                }
+            } catch (e) { console.log("Cover art extraction skipped."); }
 
-                // --- 再生実行 (ここが重要) ---
-                // 再生開始前にフラグを立ててロックを解除し、ループを抜ける準備をする
-                trackFoundAndPlayed = true;
-                isLoadingTrack = false;
-
-                Amplitude.playNow({
-                    name: track.title || "Unknown",
-                    artist: track.artist || "Unknown",
-                    url: currentBlobUrl,
-                    cover_art_url: coverUrl
-                });
-
-                // UI更新 (エラーになっても止まらないように全てオプション（?）扱いに)
-                const titleEl = document.getElementById('now-playing-title');
-                const artistEl = document.getElementById('now-playing-artist');
-                if (titleEl) titleEl.innerText = track.title || "";
-                if (artistEl) artistEl.innerText = track.artist || "";
-
-                document.querySelectorAll('#track_list li').forEach(el => el.classList.remove('playing'));
-                const activeLi = document.getElementById(`track-${index}`);
-                if (activeLi) activeLi.classList.add('playing');
-
-                updateStatus('Playing');
-
-                return; // ★これ以上ループさせないために、ここで関数を強制終了★
-            } else {
-                updateStatus(`Skipping: ${fileName}`);
-                index++;
-            }
+            // 再生開始
+            startPlayback(index, currentBlobUrl, coverUrl);
+        } else {
+            // ファイルが見つからなかった場合は次の曲へ
+            updateStatus(`Not Found: ${fileName}`);
+            isLoadingTrack = false;
+            playWithAmplitude(index + 1);
         }
     } catch (e) {
-        console.error("Playback Error handled:", e);
-    } finally {
+        console.error("Playback flow error:", e);
+        updateStatus("Error: " + e.message);
         isLoadingTrack = false;
     }
 }
 
+function startPlayback(index, url, cover) {
+    const track = currentPlaylist[index];
+    if (!track) return;
+
+    currentTrackIndex = index;
+    const fullTitle = track.version ? `${track.title} (${track.version})` : track.title;
+
+    // 1. Amplitudeの初期化（表示用）
+    Amplitude.init({
+        songs: [{
+            name: fullTitle,
+            artist: track.artist || "Unknown",
+            url: url,
+            cover_art_url: cover
+        }],
+        // 自動遷移は完全に切る
+        continue_next: false
+    });
+
+    // 再生開始
+    Amplitude.play();
+
+
+    // 3. 【最重要】ブラウザのAudioタグを直接捕まえてイベントをセット
+    // Amplitudeが生成したaudio要素を特定
+    const audio = document.querySelector('audio');
+    if (audio) {
+        // 既存のイベントを一度削除してクリーンにする
+        audio.onended = null;
+
+        // 強制的に次の曲を呼び出す
+        audio.onended = () => {
+            console.log("Native Audio Ended: Triggering next track...");
+            // フラグを強制リセットしてロックを解除
+            isLoadingTrack = false;
+            playWithAmplitude(currentTrackIndex + 1);
+        };
+    }
+    // --- UI更新 ---
+    const titleEl = document.getElementById('now-playing-title');
+    const artistEl = document.getElementById('now-playing-artist');
+    if (titleEl) titleEl.innerText = fullTitle;
+    if (artistEl) artistEl.innerText = track.artist || "";
+
+    // マーキー（流れる文字）の判定
+    if (typeof updateMarquee === 'function') updateMarquee();
+
+    // プレイリスト内のハイライト更新
+    document.querySelectorAll('#track_list li').forEach(el => el.classList.remove('playing'));
+    const activeLi = document.getElementById(`track-${index}`);
+    if (activeLi) activeLi.classList.add('playing');
+
+    updateStatus('Playing');
+    isLoadingTrack = false;
+
+    // ★重要：再生が始まったら、バックグラウンドで「さらに次の曲」を先読み
+    console.log("Starting prefetch for the next valid track...");
+    prefetchNextTrack(index);
+
+    // --- 最終手段：残り時間を監視して強制的に次へ飛ばす ---
+    if (window.autoNextTimer) clearInterval(window.autoNextTimer);
+
+    window.autoNextTimer = setInterval(() => {
+        const audio = document.querySelector('audio');
+        if (audio && !audio.paused && audio.duration > 0) {
+            // 残り時間が 0.5秒を切ったら「終了」とみなす
+            const timeLeft = audio.duration - audio.currentTime;
+            if (timeLeft < 0.5) {
+                console.log("Timer detected end of track. Forcing next...");
+                clearInterval(window.autoNextTimer);
+
+                // ロックを解除して次を再生
+                isLoadingTrack = false;
+                playWithAmplitude(currentTrackIndex + 1);
+            }
+        }
+    }, 300); // 0.3秒ごとにチェック
+}
 window.initApp = initApp;
 

@@ -3,6 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <!-- Googleのスクリプト実行とデータURI画像の読み込みを明示的に許可する設定 -->
     <meta http-equiv="Content-Security-Policy"
         content="script-src 'self' https://apis.google.com https://accounts.google.com https://*.jsdelivr.net https://*.jsdelivr.com https://cdnjs.cloudflare.com 'unsafe-inline' 'unsafe-eval'; img-src 'self' data: blob:;">
@@ -25,7 +26,7 @@
     <div id="flat-black-player">
         <div id="playlist-bar-toggle" onclick="togglePlaylistView()"
             style="cursor:pointer; background:#141920; height:45px; display:flex; align-items:center; justify-content:center; position:relative; z-index:10001;">
-            <span id="playlist-status-text">Show Playlist</span>
+            <span id="playlist-status-text">SHOW TRACK LIST</span>
             <svg id="playlist-arrow" width="16" height="16" viewBox="0 0 24 24" fill="white"
                 style="transition:0.3s; margin-left:10px;">
                 <path d="M7 10l5 5 5-5z"></path>
@@ -38,11 +39,13 @@
         </ul>
 
         <div class="player-top">
-            <img data-amplitude-song-info="cover_art_url" class="album-art"
-                style="width:200px; height:200px; object-fit:cover;" />
+            <img data-amplitude-song-info="cover_art_url" class="album-art" alt="Cover Art" />
             <div class="now-playing-meta-container">
-                <div id="now-playing-title" data-amplitude-song-info="name" class="now-playing-title"></div>
-                <div id="now-playing-artist" data-amplitude-song-info="artist" class="now-playing-artist"></div>
+                <!-- 曲名を囲む専用の箱を追加 -->
+                <div class="title-wrapper">
+                    <div data-amplitude-song-info="name" id="now-playing-title" class="now-playing-title"></div>
+                </div>
+                <div data-amplitude-song-info="artist" id="now-playing-artist" class="now-playing-artist"></div>
             </div>
         </div>
 
@@ -86,9 +89,13 @@
         </div>
 
         <div class="progress-container">
-            <progress class="amplitude-song-played-progress"></progress>
-            <input type="range" class="amplitude-song-slider" />
-            <div style="display:flex; justify-content:space-between; font-size:10px; margin-top:5px;">
+            <!-- バーとつまみのエリア -->
+            <div class="bar-wrapper">
+                <progress class="amplitude-song-played-progress"></progress>
+                <input type="range" class="amplitude-song-slider" step=".1""" ) />>
+            </div>
+            <!-- 時間表示のエリア -->
+            <div class="time-container">
                 <span class="amplitude-current-time">00:00</span>
                 <span class="amplitude-duration-time">00:00</span>
             </div>
@@ -98,6 +105,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js"></script>
     <script src="https://apis.google.com/js/api.js"></script>
     <script src="https://accounts.google.com/gsi/client"></script>
+    <script src="jukebox.js"></script>
+
     <script>
         function togglePlaylistView() {
             console.log("Toggle Clicked!");
@@ -112,7 +121,6 @@
             if (text) text.innerText = isOpen ? "Close Playlist" : "Show Playlist";
         }
     </script>
-    <script src="jukebox.js"></script>
 
 
     <script>
@@ -133,9 +141,12 @@
         const playerElement = document.getElementById('flat-black-player');
         const trackListElement = document.getElementById('track_list');
 
-        playlistToggleBtn.addEventListener('click', () => {
-            playerElement.classList.toggle('playlist-open');
-        });
+        if (playlistToggleBtn) {
+            playlistToggleBtn.addEventListener('click', () => {
+                const playerElement = document.getElementById('flat-black-player');
+                if (playerElement) playerElement.classList.toggle('playlist-open');
+            });
+        }
 
         trackListElement.addEventListener('click', (e) => {
             // When a song is clicked inside the list, close the playlist overlay.
