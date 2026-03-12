@@ -465,30 +465,24 @@ function startPlayback(index, url, cover) {
     currentTrackIndex = index;
     const fullTitle = track.version ? `${track.title} (${track.version})` : track.title;
 
-    // 1. Amplitudeの初期化（表示用）
-    Amplitude.init({
-        songs: [{
-            name: fullTitle,
-            artist: track.artist || "Unknown",
-            url: url,
-            cover_art_url: cover
-        }],
-        // 自動遷移は完全に切る
-        continue_next: false
-    });
-
-    // 再生開始
-    Amplitude.play();
-
+    // 1. Amplitudeでの再生（playNowを使用し再初期化を避ける）
+    // 再初期化（Amplitude.init）するとAudio要素が作り直され、ブラウザの自動再生ブロックに掛かるため
+    const songData = {
+        name: fullTitle,
+        artist: track.artist || "Unknown",
+        url: url,
+        cover_art_url: cover
+    };
+    Amplitude.playNow(songData);
 
     // 3. 【最重要】ブラウザのAudioタグを直接捕まえてイベントをセット
     // Amplitudeが生成したaudio要素を特定
-    const audio = document.querySelector('audio');
+    const audio = Amplitude.getAudio ? Amplitude.getAudio() : document.querySelector('audio');
     if (audio) {
         // 既存のイベントを一度削除してクリーンにする
         audio.onended = null;
-
-        // 強制的に次の曲を呼び出す
+        
+        // Amplitudeのsong_endedコールバックを使いますが、念のためバックアップとして設定
         audio.onended = () => {
             console.log("Native Audio Ended: Triggering next track...");
             // フラグを強制リセットしてロックを解除
@@ -496,6 +490,7 @@ function startPlayback(index, url, cover) {
             playWithAmplitude(currentTrackIndex + 1);
         };
     }
+
     // --- UI更新 ---
     const titleEl = document.getElementById('now-playing-title');
     const artistEl = document.getElementById('now-playing-artist');
@@ -521,16 +516,17 @@ function startPlayback(index, url, cover) {
     if (window.autoNextTimer) clearInterval(window.autoNextTimer);
 
     window.autoNextTimer = setInterval(() => {
-        const audio = document.querySelector('audio');
+        const audio = Amplitude.getAudio ? Amplitude.getAudio() : document.querySelector('audio');
         if (audio && !audio.paused && audio.duration > 0) {
             // 残り時間が 0.5秒を切ったら「終了」とみなす
             const timeLeft = audio.duration - audio.currentTime;
-            if (timeLeft < 0.5) {
+            if (timeLeft < 0.5 && timeLeft > 0) {
                 console.log("Timer detected end of track. Forcing next...");
                 clearInterval(window.autoNextTimer);
 
                 // ロックを解除して次を再生
                 isLoadingTrack = false;
+                // 次の曲を再生
                 playWithAmplitude(currentTrackIndex + 1);
             }
         }
