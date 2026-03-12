@@ -271,6 +271,9 @@ function renderList() {
         };
         trackList.appendChild(li);
     });
+
+    // プレイリストが新しく描画されたら、スクロール位置を一番上にリセットする
+    trackList.scrollTop = 0;
 }
 
 function updateMarquee() {
