@@ -215,7 +215,7 @@ selector.onchange = async (e) => {
     }
 
     updateStatus("Ready: " + data.year);
-    
+
     // 最初の有効な曲から自動再生を開始
     playWithAmplitude(0);
 };
@@ -225,11 +225,16 @@ function renderList() {
     trackList.innerHTML = '';
     currentPlaylist.forEach((track, index) => {
         if (!track || !track.title) return; // JSON内に空要素等が含まれている場合はスキップする
-        
+
         const fullTitle = track.version ? `${track.title} (${track.version})` : track.title;
 
         // mp3_file が存在するかチェック
         const hasFile = track.mp3_file && track.mp3_file.trim() !== "";
+
+        // ★追加要望：11曲目以降（1-basedで11番目から）で mp3_file が無い場合は表示自体をスキップする
+        if (index + 1 > 10 && !hasFile) {
+            return;
+        }
 
         const li = document.createElement('li');
         li.id = `track-${index}`;
@@ -492,7 +497,7 @@ function startPlayback(index, url, cover) {
     if (audio) {
         // 既存のイベントを一度削除してクリーンにする
         audio.onended = null;
-        
+
         // Amplitudeのsong_endedコールバックを使いますが、念のためバックアップとして設定
         audio.onended = () => {
             console.log("Native Audio Ended: Triggering next track...");
