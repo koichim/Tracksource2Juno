@@ -32,7 +32,7 @@ body {
     #flat-black-player {
         width: 450px;       /* PCでは固定幅 */
         min-height: auto;   /* 高さは中身に合わせる */
-        margin: 40px auto;  /* 上下に余白を作って中央寄せ */
+        margin: 10px auto 40px auto;  /* 上への余白を減らし、下には残して中央寄せ */
         border-radius: 8px; /* 角丸を復活 */
         height: auto;
     }
@@ -155,12 +155,12 @@ body {
 /* メタ情報（曲名・アーティスト）の余白を再調整 */
 .now-playing-meta-container {
     width: 100%;
-    padding: 20px 0;
+    padding: 10px 0; /* 高さを圧縮 */
     background-color: #111;
     display: flex !important;
     flex-direction: column !important; /* 縦並びを強制 */
     align-items: center;
-    gap: 15px; /* タイトルとアーティストの距離を広めに固定 */
+    gap: 8px; /* タイトルとアーティストの距離を縮小 */
 }
 
 /* 曲名の「表示窓」 */
@@ -233,7 +233,7 @@ body {
     justify-content: center; /* 横方向の中央寄せ */
     align-items: center;     /* 縦方向の中央寄せ（これで高さが揃います） */
     width: 100%;
-    padding: 20px 0 30px 0; /* 下部に余白を付けてバランスを調整 */
+    padding: 10px 0 15px 0; /* 下部の余白なども全体的に圧縮 */
     background-color: #111;
     /* アイコン同士の間隔を 30px に広げて、全体をゆったりさせる */
     gap: 30px; 
@@ -387,5 +387,5 @@ input[type="range"].amplitude-song-slider::-webkit-slider-thumb {
 #track_list::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
 
 /* 9. Setup Area (認証ボタン等) */
-.setup-area { width: 100%; max-width: 450px; padding: 10px; box-sizing: border-box; }
-select, button#auth_btn { width: 100%; padding: 10px; background: #222; color: #fff; border: 1px solid #444; border-radius: 4px; margin-bottom: 5px; }
+.setup-area { width: 100%; max-width: 450px; padding: 10px 10px 0 10px; box-sizing: border-box; }
+select, button#auth_btn { width: 100%; padding: 10px; background: #222; color: #fff; border: 1px solid #444; border-radius: 4px; margin-bottom: 2px; }
