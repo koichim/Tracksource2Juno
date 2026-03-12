@@ -81,8 +81,8 @@ async function initApp() {
                     }
                 },
                 song_ended: function () {
-                    console.log("Song ended. Moving to next track...");
-                    playWithAmplitude(currentTrackIndex + 1);
+                    console.log("Amplitude Callback: Song ended. Moving to next...");
+                    playNextTrack();
                 }
             }
         });
@@ -106,7 +106,7 @@ async function initApp() {
         }
     });
     document.getElementById('custom-next').onclick = () => {
-        playWithAmplitude(currentTrackIndex + 1);
+        playNextTrack();
     };
     document.getElementById('custom-prev').onclick = () => {
         const prev = Math.max(0, currentTrackIndex - 1);
@@ -123,6 +123,7 @@ async function initApp() {
             this.classList.remove('amplitude-shuffle-on');
             this.style.opacity = "0.5";
         }
+        clearPrefetch();
     };
 
     document.getElementById('repeat').onclick = function () {
@@ -134,6 +135,7 @@ async function initApp() {
             this.classList.remove('amplitude-repeat-on');
             this.style.opacity = "0.5";
         }
+        clearPrefetch();
     };
     gisInited = true;
     if (gapiInited && gisInited) {
@@ -195,12 +197,53 @@ async function findTracksFolder(yearId, yearName) {
             q: `'${tf.id}' in parents and mimeType = 'application/json' and trashed = false`,
             fields: 'files(id, name)'
         });
-        jRes.result.files.forEach(file => {
+        
+        // プレイリストファイルを読み込んで、中身のメタデータで表示名を更新する
+        for (const file of jRes.result.files) {
             const opt = document.createElement('option');
             opt.value = JSON.stringify({ id: file.id, year: yearName });
-            opt.innerText = `[${yearName}] ${file.name}`;
+            opt.innerText = `[${yearName}] Loading... ${file.name}`;
             selector.appendChild(opt);
-        });
+
+            try {
+                const jData = await gapi.client.drive.files.get({ fileId: file.id, alt: 'media' });
+                const d = jData.result;
+                if (d && d.date && d.chart_artist && d.chart_title) {
+                    // アーティスト名の重複チェック：タイトルがアーティスト名で始まっているか
+                    const artist = d.chart_artist.trim();
+                    const title = d.chart_title.trim();
+                    const titleL = title.toLowerCase();
+                    const artistL = artist.toLowerCase();
+
+                    // 特定のアーティストの略称などの同一視設定
+                    const aliases = {
+                        "micky more & andy tee": ["mm & at"],
+                        "dave lee zr": ["dave lee"],
+                        "dave lee": ["dave lee zr"]
+                    };
+                    
+                    let isDuplicate = titleL.startsWith(artistL);
+                    
+                    // 略称でも始まっているかチェック
+                    if (!isDuplicate && aliases[artistL]) {
+                        isDuplicate = aliases[artistL].some(a => titleL.startsWith(a.toLowerCase()));
+                    }
+                    
+                    if (isDuplicate) {
+                        // 重複（または略称一致）しているのでアーティスト名を省く
+                        opt.innerText = `${d.date} ${title}`;
+                    } else {
+                        // 重複していないので (artist)'s (title) 形式
+                        opt.innerText = `${d.date} ${artist}'s ${title}`;
+                    }
+                } else {
+                    opt.innerText = `[${yearName}] ${file.name}`;
+                }
+            } catch (err) {
+                console.error("Error renaming playlist:", err);
+                opt.innerText = `[${yearName}] ${file.name}`;
+            }
+        }
     }
 }
 
@@ -324,15 +367,47 @@ async function prefetchNextTrack(currentIndex) {
     isPrefetching = true;
 
     try {
-        let targetIndex = currentIndex + 1;
+        let targetIndex = -1;
 
-        // 1. 次に再生可能な（mp3_fileがある）曲を探す
-        while (targetIndex < currentPlaylist.length && (!currentPlaylist[targetIndex] || !currentPlaylist[targetIndex].mp3_file)) {
-            targetIndex++;
+        if (isShuffleOn && currentPlaylist.length > 0) {
+            const validIndices = [];
+            currentPlaylist.forEach((t, i) => {
+                if (t.mp3_file && t.mp3_file.trim() !== "") {
+                    validIndices.push(i);
+                }
+            });
+
+            if (validIndices.length > 0) {
+                let filtered = validIndices.filter(i => i !== currentIndex);
+                if (filtered.length === 0) filtered = validIndices;
+                targetIndex = filtered[Math.floor(Math.random() * filtered.length)];
+            }
+        } else {
+            let idx = currentIndex + 1;
+            let searchCount = 0;
+            const maxSearch = currentPlaylist.length;
+
+            while (searchCount < maxSearch) {
+                if (idx >= currentPlaylist.length) {
+                    if (isRepeatOn) {
+                        idx = 0;
+                    } else {
+                        break;
+                    }
+                }
+
+                const track = currentPlaylist[idx];
+                if (track && track.mp3_file && track.mp3_file.trim() !== "") {
+                    targetIndex = idx;
+                    break;
+                }
+                idx++;
+                searchCount++;
+            }
         }
 
-        // リストの最後まで到達していたら終了
-        if (targetIndex >= currentPlaylist.length) {
+        // 2. 見つからなかった、または自分自身に戻ってきてしまった場合は終了
+        if (targetIndex === -1 || targetIndex === currentIndex) {
             console.log("No more tracks to prefetch.");
             isPrefetching = false;
             return;
@@ -394,6 +469,49 @@ async function prefetchNextTrack(currentIndex) {
         console.error("Prefetch process error:", e);
     } finally {
         isPrefetching = false;
+    }
+}
+
+// --- 再生制御の統合ヘルパー ---
+function playNextTrack() {
+    // すでに先読み済みのインデックスがあればそれを優先する（シャッフル時も含む）
+    if (nextTrackIndex !== -1) {
+        console.log(`Using prefetched index: ${nextTrackIndex}`);
+        playWithAmplitude(nextTrackIndex);
+        return;
+    }
+
+    if (isShuffleOn && currentPlaylist.length > 0) {
+        // ... (以下、先読みがない場合のフォールバックロジック)
+        const validIndices = [];
+        currentPlaylist.forEach((t, i) => {
+            if (t.mp3_file && t.mp3_file.trim() !== "") {
+                validIndices.push(i);
+            }
+        });
+
+        if (validIndices.length > 0) {
+            let filtered = validIndices.filter(i => i !== currentTrackIndex);
+            if (filtered.length === 0) filtered = validIndices;
+            
+            const randomIdx = filtered[Math.floor(Math.random() * filtered.length)];
+            playWithAmplitude(randomIdx);
+            return;
+        }
+    }
+    // 通常再生
+    playWithAmplitude(currentTrackIndex + 1);
+}
+
+function clearPrefetch() {
+    nextTrackIndex = -1;
+    if (nextBlobUrl) URL.revokeObjectURL(nextBlobUrl);
+    nextBlobUrl = null;
+    nextCoverUrl = null;
+    console.log("Prefetch cleared.");
+    // 状態が変わったので必要なら新しい先読みを開始
+    if (currentTrackIndex !== -1) {
+        prefetchNextTrack(currentTrackIndex);
     }
 }
 
@@ -527,7 +645,7 @@ async function playWithAmplitude(index) {
             // ファイルが見つからなかった場合は次の曲へ
             updateStatus(`Not Found: ${fileName}`);
             isLoadingTrack = false;
-            playWithAmplitude(index + 1);
+            playNextTrack();
         }
     } catch (e) {
         console.error("Playback flow error:", e);
@@ -560,7 +678,7 @@ function startPlayback(index, url, cover, gen) {
             if (playGeneration === gen) {
                 console.log(`[Gen ${gen}] Native Audio Ended. Triggering next track...`);
                 isLoadingTrack = false;
-                playWithAmplitude(currentTrackIndex + 1);
+                playNextTrack();
             } else {
                 console.warn(`[Gen ${gen}] Native Audio Ended but ignored (New gen ${playGeneration} is active).`);
             }
@@ -602,7 +720,7 @@ function startPlayback(index, url, cover, gen) {
                 clearInterval(window.autoNextTimer);
                 window.autoNextTimer = null;
                 isLoadingTrack = false;
-                playWithAmplitude(currentTrackIndex + 1);
+                playNextTrack();
             }
         }
     }, 300);
