@@ -215,12 +215,17 @@ selector.onchange = async (e) => {
     }
 
     updateStatus("Ready: " + data.year);
+    
+    // 最初の有効な曲から自動再生を開始
+    playWithAmplitude(0);
 };
 
 
 function renderList() {
     trackList.innerHTML = '';
     currentPlaylist.forEach((track, index) => {
+        if (!track || !track.title) return; // JSON内に空要素等が含まれている場合はスキップする
+        
         const fullTitle = track.version ? `${track.title} (${track.version})` : track.title;
 
         // mp3_file が存在するかチェック
@@ -264,18 +269,24 @@ function renderList() {
 }
 
 function updateMarquee() {
-    const title = document.getElementById('now-playing-title');
-    const wrapper = document.querySelector('.title-wrapper');
-    if (!title || !wrapper) return;
+    const checkMarquee = (elementId) => {
+        const el = document.getElementById(elementId);
+        if (!el) return;
+        const wrapper = el.parentElement;
+        if (!wrapper) return;
 
-    title.classList.remove('is-marquee');
+        el.classList.remove('is-marquee');
 
-    setTimeout(() => {
-        // 文字の幅が、表示窓(wrapper)の幅より大きいか判定
-        if (title.scrollWidth > wrapper.offsetWidth) {
-            title.classList.add('is-marquee');
-        }
-    }, 100);
+        setTimeout(() => {
+            // 文字の幅が、表示窓(wrapper)の幅より大きいか判定
+            if (el.scrollWidth > wrapper.offsetWidth) {
+                el.classList.add('is-marquee');
+            }
+        }, 100);
+    };
+
+    checkMarquee('now-playing-title');
+    checkMarquee('now-playing-artist');
 }
 
 /**
@@ -290,7 +301,7 @@ async function prefetchNextTrack(currentIndex) {
         let targetIndex = currentIndex + 1;
 
         // 1. 次に再生可能な（mp3_fileがある）曲を探す
-        while (targetIndex < currentPlaylist.length && !currentPlaylist[targetIndex].mp3_file) {
+        while (targetIndex < currentPlaylist.length && (!currentPlaylist[targetIndex] || !currentPlaylist[targetIndex].mp3_file)) {
             targetIndex++;
         }
 
@@ -370,7 +381,7 @@ async function playWithAmplitude(index) {
 
     try {
         // --- 1. 次の「有効な曲(mp3_fileがある曲)」を探す ---
-        while (index < currentPlaylist.length && !currentPlaylist[index].mp3_file) {
+        while (index < currentPlaylist.length && (!currentPlaylist[index] || !currentPlaylist[index].mp3_file)) {
             index++;
         }
 
