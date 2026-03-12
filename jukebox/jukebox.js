@@ -10,6 +10,9 @@ let nextTrackIndex = -1;
 let nextBlobUrl = null;
 let nextCoverUrl = null;
 let isPrefetching = false;
+let isShuffleOn = false;
+let isRepeatOn = false;
+let playGeneration = 0; // 世代管理：古い再生予約をキャンセルするため
 
 const authBtn = document.getElementById('auth_btn');
 const selector = document.getElementById('playlist_selector');
@@ -112,10 +115,25 @@ async function initApp() {
 
     // シャッフルとリピートの状態（見た目）の切り替え
     document.getElementById('shuffle').onclick = function () {
-        this.style.opacity = this.classList.contains('amplitude-shuffle-on') ? "1" : "0.5";
+        isShuffleOn = !isShuffleOn;
+        if (isShuffleOn) {
+            this.classList.add('amplitude-shuffle-on');
+            this.style.opacity = "1";
+        } else {
+            this.classList.remove('amplitude-shuffle-on');
+            this.style.opacity = "0.5";
+        }
     };
+
     document.getElementById('repeat').onclick = function () {
-        this.style.opacity = this.classList.contains('amplitude-repeat-on') ? "1" : "0.5";
+        isRepeatOn = !isRepeatOn;
+        if (isRepeatOn) {
+            this.classList.add('amplitude-repeat-on');
+            this.style.opacity = "1";
+        } else {
+            this.classList.remove('amplitude-repeat-on');
+            this.style.opacity = "0.5";
+        }
     };
     gisInited = true;
     if (gapiInited && gisInited) {
@@ -381,6 +399,19 @@ async function prefetchNextTrack(currentIndex) {
 
 // 4. 再生 & スキップロジック
 async function playWithAmplitude(index) {
+    // 世代を進める（古いタイマーやイベントからの呼び出しを無効化する）
+    const thisGen = ++playGeneration;
+
+    // 前の曲の監視タイマーとイベントを即座に破棄
+    if (window.autoNextTimer) {
+        clearInterval(window.autoNextTimer);
+        window.autoNextTimer = null;
+    }
+    const audio = Amplitude.getAudio ? Amplitude.getAudio() : document.querySelector('audio');
+    if (audio) {
+        audio.onended = null;
+    }
+
     // タイマーからの呼び出しなどで重なった場合でも、
     // 前のロードが「現在のインデックスと同じ」ならスキップして進めるようにする
     if (isLoadingTrack && index === currentTrackIndex) return;
@@ -388,14 +419,36 @@ async function playWithAmplitude(index) {
     isLoadingTrack = true;
 
     try {
-        // --- 1. 次の「有効な曲(mp3_fileがある曲)」を探す ---
-        while (index < currentPlaylist.length && (!currentPlaylist[index] || !currentPlaylist[index].mp3_file)) {
+        // --- 1. 次の「有効な曲」を探すループ ---
+        let searchCount = 0;
+        const maxSearch = currentPlaylist.length + 1;
+
+        while (searchCount < maxSearch) {
+            // リストの最後まで到達した場合
+            if (index >= currentPlaylist.length) {
+                if (isRepeatOn && currentPlaylist.length > 0) {
+                    console.log(`[Gen ${thisGen}] End of list. Wrapping to start.`);
+                    index = 0;
+                } else {
+                    updateStatus("End of Playlist");
+                    isLoadingTrack = false;
+                    return;
+                }
+            }
+
+            const track = currentPlaylist[index];
+            if (track && track.mp3_file && track.mp3_file.trim() !== "") {
+                // 有効な曲が見つかった
+                break;
+            }
+            
+            console.log(`[Gen ${thisGen}] Skipping index ${index} (No valid file).`);
             index++;
+            searchCount++;
         }
 
-        // リストの最後まで到達したら終了
-        if (index >= currentPlaylist.length) {
-            updateStatus("End of Playlist");
+        if (searchCount >= maxSearch) {
+            updateStatus("No playable tracks found");
             isLoadingTrack = false;
             return;
         }
@@ -417,7 +470,7 @@ async function playWithAmplitude(index) {
             nextTrackIndex = -1;
 
             // 再生開始
-            startPlayback(index, currentBlobUrl, coverUrl);
+            startPlayback(index, currentBlobUrl, coverUrl, thisGen);
             return; // ここで終了
         }
 
@@ -462,8 +515,14 @@ async function playWithAmplitude(index) {
                 }
             } catch (e) { console.log("Cover art extraction skipped."); }
 
+            // 【重要】再生ボタン押下などで新しい世代が割り込んでいないか最終チェック
+            if (playGeneration !== thisGen) {
+                console.warn(`[Gen ${thisGen}] Interrupted before startPlayback. Aborting.`);
+                return;
+            }
+
             // 再生開始
-            startPlayback(index, currentBlobUrl, coverUrl);
+            startPlayback(index, currentBlobUrl, coverUrl, thisGen);
         } else {
             // ファイルが見つからなかった場合は次の曲へ
             updateStatus(`Not Found: ${fileName}`);
@@ -477,15 +536,14 @@ async function playWithAmplitude(index) {
     }
 }
 
-function startPlayback(index, url, cover) {
+function startPlayback(index, url, cover, gen) {
     const track = currentPlaylist[index];
     if (!track) return;
 
     currentTrackIndex = index;
     const fullTitle = track.version ? `${track.title} (${track.version})` : track.title;
 
-    // 1. Amplitudeでの再生（playNowを使用し再初期化を避ける）
-    // 再初期化（Amplitude.init）するとAudio要素が作り直され、ブラウザの自動再生ブロックに掛かるため
+    // 1. Amplitudeでの再生
     const songData = {
         name: fullTitle,
         artist: track.artist || "Unknown",
@@ -494,19 +552,18 @@ function startPlayback(index, url, cover) {
     };
     Amplitude.playNow(songData);
 
-    // 3. 【最重要】ブラウザのAudioタグを直接捕まえてイベントをセット
-    // Amplitudeが生成したaudio要素を特定
+    // 3. ブラウザのAudioタグにイベントをセット
     const audio = Amplitude.getAudio ? Amplitude.getAudio() : document.querySelector('audio');
     if (audio) {
-        // 既存のイベントを一度削除してクリーンにする
-        audio.onended = null;
-
-        // Amplitudeのsong_endedコールバックを使いますが、念のためバックアップとして設定
         audio.onended = () => {
-            console.log("Native Audio Ended: Triggering next track...");
-            // フラグを強制リセットしてロックを解除
-            isLoadingTrack = false;
-            playWithAmplitude(currentTrackIndex + 1);
+            // 【重要】このイベントが発生した時の世代が、現在の世代と一致する場合のみ次へ
+            if (playGeneration === gen) {
+                console.log(`[Gen ${gen}] Native Audio Ended. Triggering next track...`);
+                isLoadingTrack = false;
+                playWithAmplitude(currentTrackIndex + 1);
+            } else {
+                console.warn(`[Gen ${gen}] Native Audio Ended but ignored (New gen ${playGeneration} is active).`);
+            }
         };
     }
 
@@ -516,10 +573,8 @@ function startPlayback(index, url, cover) {
     if (titleEl) titleEl.innerText = fullTitle;
     if (artistEl) artistEl.innerText = track.artist || "";
 
-    // マーキー（流れる文字）の判定
     if (typeof updateMarquee === 'function') updateMarquee();
 
-    // プレイリスト内のハイライト更新
     document.querySelectorAll('#track_list li').forEach(el => el.classList.remove('playing'));
     const activeLi = document.getElementById(`track-${index}`);
     if (activeLi) activeLi.classList.add('playing');
@@ -527,29 +582,30 @@ function startPlayback(index, url, cover) {
     updateStatus('Playing');
     isLoadingTrack = false;
 
-    // ★重要：再生が始まったら、バックグラウンドで「さらに次の曲」を先読み
-    console.log("Starting prefetch for the next valid track...");
+    console.log(`[Gen ${gen}] Starting prefetch...`);
     prefetchNextTrack(index);
 
-    // --- 最終手段：残り時間を監視して強制的に次へ飛ばす ---
-    if (window.autoNextTimer) clearInterval(window.autoNextTimer);
-
+    // --- 最終手段：監視タイマー ---
     window.autoNextTimer = setInterval(() => {
+        // 【重要】世代が古くなっていたらタイマー自体を破棄
+        if (playGeneration !== gen) {
+            clearInterval(window.autoNextTimer);
+            window.autoNextTimer = null;
+            return;
+        }
+
         const audio = Amplitude.getAudio ? Amplitude.getAudio() : document.querySelector('audio');
         if (audio && !audio.paused && audio.duration > 0) {
-            // 残り時間が 0.5秒を切ったら「終了」とみなす
             const timeLeft = audio.duration - audio.currentTime;
             if (timeLeft < 0.5 && timeLeft > 0) {
-                console.log("Timer detected end of track. Forcing next...");
+                console.log(`[Gen ${gen}] Timer detected end. Forcing next...`);
                 clearInterval(window.autoNextTimer);
-
-                // ロックを解除して次を再生
+                window.autoNextTimer = null;
                 isLoadingTrack = false;
-                // 次の曲を再生
                 playWithAmplitude(currentTrackIndex + 1);
             }
         }
-    }, 300); // 0.3秒ごとにチェック
+    }, 300);
 }
 window.initApp = initApp;
 
