@@ -342,6 +342,9 @@ progress.amplitude-song-played-progress {
     border: none;
     background: transparent;
     z-index: 1;
+    /* ツマミの半径(7px)に合わせて内側に余白を作り、位置を同期させる */
+    box-sizing: border-box;
+    padding: 0 7px;
 }
 progress.amplitude-song-played-progress::-webkit-progress-bar { background: #444; border-radius: 2px; }
 progress.amplitude-song-played-progress::-webkit-progress-value { background: #55b560; border-radius: 2px; }
@@ -350,11 +353,21 @@ progress.amplitude-song-played-progress::-webkit-progress-value { background: #5
 input[type="range"].amplitude-song-slider {
     -webkit-appearance: none;
     width: 100%;
+    height: 20px; /* 親の .bar-wrapper と高さを合わせる */
+    margin: 0;
     background: transparent;
     position: relative;
     z-index: 10;
     cursor: pointer;
-    margin: 0;
+    outline: none;
+}
+
+/* スキャンの通り道（トラック）の高さを明示的に指定 */
+input[type="range"].amplitude-song-slider::-webkit-slider-runnable-track {
+    width: 100%;
+    height: 4px; /* progress と同じ高さ */
+    cursor: pointer;
+    background: transparent; /* 背景は下の progress 要素に任せる */
 }
 
 /* 白い●つまみの位置調整 */
@@ -365,7 +378,7 @@ input[type="range"].amplitude-song-slider::-webkit-slider-thumb {
     border-radius: 50%;
     background: #FFF;
     cursor: pointer;
-    /* margin-top でバーのど真ん中に重なるよう微調整 */
+    /* トラック(4px)の真ん中に14pxの丸を置くための計算: (4/2) - (14/2) = -5px */
     margin-top: -5px; 
     box-shadow: 0 0 5px rgba(0,0,0,0.5);
 }
