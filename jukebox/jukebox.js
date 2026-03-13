@@ -13,7 +13,7 @@ let isPrefetching = false;
 let isShuffleOn = false;
 let isRepeatOn = false;
 let playGeneration = 0; // 世代管理：古い再生予約をキャンセルするため
-const APP_VERSION = "v33.0"; // デバッグ用バージョン
+const APP_VERSION = "v35.0"; // プロダクション用バージョン
 let currentPlaylistDate = ""; // v23: 現在のリストの日付
 let currentIsIncomplete = false; // v25: 現在のリストが未完成か
 
@@ -113,10 +113,8 @@ const syncUI = () => {
 
         const ampState = (typeof Amplitude !== 'undefined' && Amplitude.getPlayerState) ? Amplitude.getPlayerState() : 'unknown';
         if (debugEl) {
-            // v28: 診断情報を強化して工事中判定を確認
-            const dateStr = currentPlaylistDate || "None";
-            const incStr = currentIsIncomplete ? "TRUE" : "FALSE";
-            debugEl.innerText = `[${APP_VERSION}] Amp:${ampState} Date:${dateStr} Inc:${incStr} Nat:${actualPaused ? 'P' : 'S'} R:${readyState}`;
+            // v34: 安定したためデバッグ表示をクリア
+            debugEl.innerText = "";
         }
 
         const state = actualPaused ? 'paused' : 'playing';
