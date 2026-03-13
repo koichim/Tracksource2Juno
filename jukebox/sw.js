@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jukebox-v2';
+const CACHE_NAME = 'jukebox-v18';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -40,10 +40,20 @@ self.addEventListener('fetch', event => {
     return; // Let browser handle it
   }
 
+  // Network-first strategy for app shell
   event.respondWith(
-    caches.match(event.request)
+    fetch(event.request)
       .then(response => {
-        return response || fetch(event.request);
+        // もしネットワークが成功したらキャッシュに保存して返す
+        const clonedResponse = response.clone();
+        caches.open(CACHE_NAME).then(cache => {
+          cache.put(event.request, clonedResponse);
+        });
+        return response;
+      })
+      .catch(() => {
+        // ネットワークが失敗（オフライン）ならキャッシュから返す
+        return caches.match(event.request);
       })
   );
 });

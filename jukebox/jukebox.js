@@ -13,31 +13,158 @@ let isPrefetching = false;
 let isShuffleOn = false;
 let isRepeatOn = false;
 let playGeneration = 0; // 世代管理：古い再生予約をキャンセルするため
+const APP_VERSION = "v18.0"; // デバッグ用バージョン
+
+// v18: 物理的に鳴っているオーディオ要素を確実に特定するヘルパー
+const getRealAudio = () => {
+    let audio = document.getElementById('jukebox-audio');
+    if (typeof Amplitude !== 'undefined' && Amplitude.getAudio) {
+        const ampAudio = Amplitude.getAudio();
+        if (ampAudio && ampAudio.src) audio = ampAudio;
+    }
+    // それでもソースがない場合は、ページ内の audio を全検索
+    if (!audio || !audio.src) {
+        const allAudios = document.querySelectorAll('audio');
+        for (let a of allAudios) {
+            if (a.src && a.src.length > 10) {
+                audio = a;
+                break;
+            }
+        }
+    }
+    return audio;
+};
+
+// --- グローバル同期 (v12.0: どんなエラーがあっても止まらないように最上部で定義) ---
+const syncUI = () => {
+    try {
+        const audio = getRealAudio();
+
+        const debugEl = document.getElementById('debug-info');
+        const playPauseBtn = document.getElementById('play-pause');
+        if (!playPauseBtn) return;
+
+        let actualPaused = true;
+        let stalled = false;
+        let readyState = 'N/A';
+        let networkState = 'N/A';
+        let errorCode = 'None';
+
+        if (audio) {
+            actualPaused = audio.paused;
+            readyState = audio.readyState;
+            networkState = audio.networkState;
+            if (audio.error) errorCode = audio.error.code;
+            if (readyState < 2 && !audio.paused) stalled = true;
+        }
+
+        const ampState = (typeof Amplitude !== 'undefined' && Amplitude.getPlayerState) ? Amplitude.getPlayerState() : 'unknown';
+        
+        if (debugEl) {
+            debugEl.innerText = `[${APP_VERSION}] Amp:${ampState} NativePaused:${actualPaused} Ready:${readyState} Net:${networkState} Err:${errorCode} CurIdx:${currentTrackIndex}`;
+        }
+
+        const state = actualPaused ? 'paused' : 'playing';
+        
+        // 1. ボタンの状態同期 (属性とクラス)
+        if (playPauseBtn.getAttribute('amplitude-player-state') !== state) playPauseBtn.setAttribute('amplitude-player-state', state);
+        if (actualPaused) {
+            playPauseBtn.classList.remove('amplitude-playing');
+            playPauseBtn.setAttribute('data-state', 'paused');
+        } else {
+            playPauseBtn.classList.add('amplitude-playing');
+            playPauseBtn.setAttribute('data-state', 'playing');
+        }
+
+        // 2. アイコンの物理的制御 (data-state に基づいた CSS で動かない場合の最終手段として直接 style を叩く)
+        const playIcon = playPauseBtn.querySelector('.play-icon');
+        const pauseIcon = playPauseBtn.querySelector('.pause-icon');
+        if (playIcon && pauseIcon) {
+            if (actualPaused) {
+                playIcon.style.setProperty('display', 'block', 'important');
+                pauseIcon.style.setProperty('display', 'none', 'important');
+            } else {
+                playIcon.style.setProperty('display', 'none', 'important');
+                pauseIcon.style.setProperty('display', 'block', 'important');
+            }
+        }
+
+        // 3. プレイリストのハイライト同期 (v16: インデックスではなく ID 指定で確実に。重い処理なので index 変更時のみでも良いが、確実性重視)
+        const selector = '#track_list li.playing';
+        const highlighted = document.querySelectorAll(selector);
+        highlighted.forEach(el => {
+            if (el.id !== `track-${currentTrackIndex}`) el.classList.remove('playing');
+        });
+
+        if (currentTrackIndex !== -1) {
+            const activeLi = document.getElementById(`track-${currentTrackIndex}`);
+            if (activeLi && !activeLi.classList.contains('playing')) {
+                activeLi.classList.add('playing');
+            }
+        }
+
+        // 4. ロック画面同期
+        if ('mediaSession' in navigator) {
+            const currentMedState = navigator.mediaSession.playbackState;
+            const targetState = (stalled) ? currentMedState : (actualPaused ? 'paused' : 'playing');
+            if (currentMedState !== targetState && (targetState === 'playing' || targetState === 'paused' || targetState === 'none')) {
+                navigator.mediaSession.playbackState = targetState;
+            }
+        }
+
+        const verEl = document.getElementById('app-version');
+        if (verEl && verEl.innerText !== APP_VERSION) verEl.innerText = APP_VERSION;
+    } catch (err) {
+        console.error("syncUI Error:", err);
+    }
+};
+
+// スクリプト読み込み直後から開始
+setInterval(syncUI, 200);
+document.addEventListener('visibilitychange', syncUI);
+window.addEventListener('focus', syncUI);
 
 const authBtn = document.getElementById('auth_btn');
 const selector = document.getElementById('playlist_selector');
 const trackList = document.getElementById('track_list');
 
+// v17: ボタンのクリックを直接制御 (ライブラリの自動制御を無効化するため)
+const playPauseBtn = document.getElementById('play-pause');
+if (playPauseBtn) {
+    playPauseBtn.onclick = () => {
+        const audio = getRealAudio();
+        if (audio) {
+            if (audio.paused) {
+                Amplitude.play();
+            } else {
+                Amplitude.pause();
+            }
+        } else {
+            Amplitude.playPause();
+        }
+    };
+}
+
+// jukebox.js 側の togglePlaylistView は index.html 側と重複するため、
+// 共通のグローバル関数として定義を一貫させます。
 window.togglePlaylistView = function () {
+    console.log("Toggle Clicked (from jukebox.js)!");
     const player = document.getElementById('flat-black-player');
     const list = document.getElementById('track_list');
     const text = document.getElementById('playlist-status-text');
+    const arrow = document.getElementById('playlist-arrow');
 
     if (!player || !list) return;
 
     const isOpen = player.classList.toggle('playlist-open');
-
-    // 表示・非表示の切り替えとテキストの更新
     list.style.display = isOpen ? 'block' : 'none';
-
+    
     if (text) {
-        // ここを TITLE LIST に変更
         text.innerText = isOpen ? "CLOSE TRACK LIST" : "SHOW TRACK LIST";
     }
-
-    // 矢印の回転など（既にある場合）
-    const arrow = document.getElementById('playlist-arrow');
-    if (arrow) arrow.style.transform = isOpen ? "rotate(180deg)" : "rotate(0deg)";
+    if (arrow) {
+        arrow.style.transform = isOpen ? "rotate(180deg)" : "rotate(0deg)";
+    }
 };
 
 function updateStatus(msg) {
@@ -67,6 +194,7 @@ async function initApp() {
 
     if (typeof Amplitude !== 'undefined') {
         Amplitude.init({
+            audio_element: document.getElementById('jukebox-audio'), // 明示的なオーディオ要素をバインド
             songs: [],
             continue_next: false, // Amplitude独自の自動遷移をオフにする（重要）
             callbacks: {
@@ -167,31 +295,6 @@ async function initApp() {
         updateStatus("Ready");
     }
 
-    // オーディオ要素の再生状態を監視してUIを同期する
-    const audio = document.getElementById('jukebox-audio') || document.querySelector('audio');
-    if (audio) {
-        const syncUI = () => {
-            const el = document.getElementById('play-pause');
-            if (el) {
-                // Amplitudeの状態ではなく、audio要素の生の状態でUIを決定する
-                const state = audio.paused ? 'paused' : 'playing';
-                el.setAttribute('amplitude-player-state', state);
-                console.log("State synced from audio element:", state);
-            }
-        };
-        audio.addEventListener('play', syncUI);
-        audio.addEventListener('pause', syncUI);
-        audio.addEventListener('playing', syncUI);
-        audio.addEventListener('ratechange', syncUI);
-
-        // 画面復帰時（ロック解除してPWAに戻った時など）に状態を強制同期する
-        document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible') {
-                console.log("App visible, forcing UI sync...");
-                syncUI();
-            }
-        });
-    }
     // initApp の最後、または window.onload 内に記述
     const playlistBar = document.getElementById('playlist-bar-toggle');
     const playerFrame = document.getElementById('flat-black-player');
@@ -718,6 +821,15 @@ function startPlayback(index, url, cover, gen) {
         cover_art_url: cover
     };
     Amplitude.playNow(songData);
+    
+    // 2. スマホ等での再生失敗対策：少し後に再生状態を確認し、止まっていれば再度Playを叩く
+    setTimeout(() => {
+        const audio = Amplitude.getAudio ? Amplitude.getAudio() : document.querySelector('audio');
+        if (audio && audio.paused && !isLoadingTrack) {
+            console.log(`[Gen ${gen}] Playback seems stalled. Nudging play...`);
+            Amplitude.play();
+        }
+    }, 500);
 
     // 3. ブラウザのAudioタグにイベントをセット
     const audio = Amplitude.getAudio ? Amplitude.getAudio() : document.querySelector('audio');
@@ -745,14 +857,21 @@ function startPlayback(index, url, cover, gen) {
             ]
         });
 
-        navigator.mediaSession.setActionHandler('play', () => { 
-            Amplitude.play();
-            // 明示的に通知
-            if (navigator.mediaSession.playbackState) navigator.mediaSession.playbackState = "playing";
+        navigator.mediaSession.setActionHandler('play', async () => { 
+            try {
+                await Amplitude.play();
+                navigator.mediaSession.playbackState = "playing";
+            } catch (err) {
+                console.error("MediaSession Play Error:", err);
+            }
         });
         navigator.mediaSession.setActionHandler('pause', () => { 
-            Amplitude.pause();
-            if (navigator.mediaSession.playbackState) navigator.mediaSession.playbackState = "paused";
+            try {
+                Amplitude.pause();
+                navigator.mediaSession.playbackState = "paused";
+            } catch (err) {
+                console.error("MediaSession Pause Error:", err);
+            }
         });
         navigator.mediaSession.setActionHandler('previoustrack', () => {
             const prev = Math.max(0, currentTrackIndex - 1);
@@ -803,3 +922,4 @@ function startPlayback(index, url, cover, gen) {
 }
 window.initApp = initApp;
 
+// --- End of jukebox.js ---
