@@ -13,7 +13,7 @@ let isPrefetching = false;
 let isShuffleOn = false;
 let isRepeatOn = false;
 let playGeneration = 0; // 世代管理：古い再生予約をキャンセルするため
-const APP_VERSION = "v25.0"; // デバッグ用バージョン
+const APP_VERSION = "v33.0"; // デバッグ用バージョン
 let currentPlaylistDate = ""; // v23: 現在のリストの日付
 let currentIsIncomplete = false; // v25: 現在のリストが未完成か
 
@@ -112,9 +112,11 @@ const syncUI = () => {
         }
 
         const ampState = (typeof Amplitude !== 'undefined' && Amplitude.getPlayerState) ? Amplitude.getPlayerState() : 'unknown';
-        
         if (debugEl) {
-            debugEl.innerText = `[${APP_VERSION}] Amp:${ampState} NativePaused:${actualPaused} Ready:${readyState} Net:${networkState} Err:${errorCode} CurIdx:${currentTrackIndex}`;
+            // v28: 診断情報を強化して工事中判定を確認
+            const dateStr = currentPlaylistDate || "None";
+            const incStr = currentIsIncomplete ? "TRUE" : "FALSE";
+            debugEl.innerText = `[${APP_VERSION}] Amp:${ampState} Date:${dateStr} Inc:${incStr} Nat:${actualPaused ? 'P' : 'S'} R:${readyState}`;
         }
 
         const state = actualPaused ? 'paused' : 'playing';
@@ -414,7 +416,8 @@ async function findTracksFolder(yearId, yearName) {
             const cached = await JukeboxDB.get(file.id);
             if (cached && cached.label) {
                 let label = cached.label;
-                // v25: キャッシュ内に未完成フラグがあれば絵文字を付与（多重付与防止）
+                // v25: キャッシュ内に未完成フラグがあれば絵文字を付与
+                // v30: 🚧 に戻す
                 if (cached.isIncomplete && !label.includes('🚧')) {
                     label += " 🚧";
                 }
@@ -459,6 +462,7 @@ async function findTracksFolder(yearId, yearName) {
                         }
                         
                         // v25: 絵文字付きラベル
+                        // v30: 🚧 に戻す
                         let displayLabel = label;
                         if (isIncomplete) displayLabel += " 🚧";
 
@@ -538,8 +542,8 @@ selector.onchange = async (e) => {
         // キャッシュを更新 (labelも保持)
         const selectedOpt = selector.options[selector.selectedIndex];
         let label = selectedOpt ? selectedOpt.innerText : (cached ? cached.label : "");
-        // 🚧 があれば除去してから保存（表示時に付与するため）
-        label = label.replace(" 🚧", "");
+        // v29: 絵文字を確実に除去してから保存
+        label = label.replace(" 🚧", "").replace(" 👷", "");
         await JukeboxDB.set(fileId, { label, chart: newChart, playlistDate: newDate, isIncomplete: newIsIncomplete, metaOnly: false });
 
     } catch (err) {
@@ -611,47 +615,6 @@ function renderList() {
 
     // プレイリストが新しく描画されたら、スクロール位置を一番上にリセットする
     trackList.scrollTop = 0;
-
-    // v23: 「半年以内の最近のもの」かつ「1-10曲目に未完成がある」場合にアイコンを表示
-    if (currentPlaylistDate) {
-        try {
-            // v25: 日付パースをより堅牢に (スラッシュやハイフンも許容、2桁年も許容)
-            const parts = currentPlaylistDate.split(/[./-]/);
-            if (parts.length >= 2) {
-                let year = parseInt(parts[0]);
-                const month = parseInt(parts[1]);
-                const day = parts[2] ? parseInt(parts[2]) : 1;
-                
-                if (!isNaN(year) && !isNaN(month)) {
-                    // 2桁年の補正 (24 -> 2024)
-                    if (year < 100) year += 2000;
-
-                    const pDate = new Date(year, month - 1, day);
-                    const sixMonthsAgo = new Date();
-                    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-
-                    // v25: currentIsIncomplete フラグを優先（selector.onchangeで算出済み）
-                    if (pDate > sixMonthsAgo && currentIsIncomplete) {
-                        const iconLi = document.createElement('li');
-                        iconLi.style.textAlign = 'center';
-                        iconLi.style.padding = '20px 0';
-                        iconLi.style.border = 'none';
-                        iconLi.style.pointerEvents = 'none'; // クリック不可
-                        // 工事中バリケードのSVG
-                        iconLi.innerHTML = `
-                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="opacity: 0.7;">
-                                <path d="M12 2L1 21H23L12 2ZM12 6L19.53 19H4.47L12 6Z" fill="#FFA000"/>
-                                <path d="M11 10H13V14H11V10ZM11 16H13V18H11V16Z" fill="#FFA000"/>
-                            </svg>
-                        `;
-                        trackList.appendChild(iconLi);
-                    }
-                }
-            }
-        } catch (e) {
-            console.error("Date parse error:", e);
-        }
-    }
 }
 
 function updateMarquee() {
