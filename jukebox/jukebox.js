@@ -99,12 +99,35 @@ async function initApp() {
         client_id: CLIENT_ID, scope: SCOPES,
         callback: async (resp) => {
             if (resp.access_token) {
+                // トークンと有効期限を保存
+                const now = new Date().getTime();
+                const expiresAt = now + (resp.expires_in * 1000);
+                localStorage.setItem('gdrive_token', JSON.stringify({
+                    access_token: resp.access_token,
+                    expires_at: expiresAt
+                }));
+
                 authBtn.style.display = 'none';
                 selector.style.display = 'block';
                 await startDiscovery();
             }
         }
     });
+
+    // 保存されたトークンがあるか確認
+    const storedToken = localStorage.getItem('gdrive_token');
+    if (storedToken) {
+        const tokenData = JSON.parse(storedToken);
+        const now = new Date().getTime();
+        // 有効期限の5分前までを「有効」と見なす
+        if (tokenData.access_token && tokenData.expires_at > now + 300000) {
+            console.log("Using stored token");
+            gapi.client.setToken({ access_token: tokenData.access_token });
+            authBtn.style.display = 'none';
+            selector.style.display = 'block';
+            await startDiscovery();
+        }
+    }
     document.getElementById('custom-next').onclick = () => {
         playNextTrack();
     };
@@ -143,6 +166,32 @@ async function initApp() {
         authBtn.innerText = "Google Drive Auth";
         updateStatus("Ready");
     }
+
+    // オーディオ要素の再生状態を監視してUIを同期する
+    const audio = document.getElementById('jukebox-audio') || document.querySelector('audio');
+    if (audio) {
+        const syncUI = () => {
+            const el = document.getElementById('play-pause');
+            if (el) {
+                // Amplitudeの状態ではなく、audio要素の生の状態でUIを決定する
+                const state = audio.paused ? 'paused' : 'playing';
+                el.setAttribute('amplitude-player-state', state);
+                console.log("State synced from audio element:", state);
+            }
+        };
+        audio.addEventListener('play', syncUI);
+        audio.addEventListener('pause', syncUI);
+        audio.addEventListener('playing', syncUI);
+        audio.addEventListener('ratechange', syncUI);
+
+        // 画面復帰時（ロック解除してPWAに戻った時など）に状態を強制同期する
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                console.log("App visible, forcing UI sync...");
+                syncUI();
+            }
+        });
+    }
     // initApp の最後、または window.onload 内に記述
     const playlistBar = document.getElementById('playlist-bar-toggle');
     const playerFrame = document.getElementById('flat-black-player');
@@ -163,7 +212,7 @@ async function initApp() {
     };
 }
 
-authBtn.onclick = () => tokenClient.requestAccessToken({ prompt: 'consent' });
+authBtn.onclick = () => tokenClient.requestAccessToken({ prompt: '' });
 
 // 2. フォルダスキャン
 async function startDiscovery() {
@@ -683,6 +732,33 @@ function startPlayback(index, url, cover, gen) {
                 console.warn(`[Gen ${gen}] Native Audio Ended but ignored (New gen ${playGeneration} is active).`);
             }
         };
+    }
+
+    // --- Media Session API (ロック画面制御) ---
+    if ('mediaSession' in navigator) {
+        navigator.mediaSession.metadata = new MediaMetadata({
+            title: track.title,
+            artist: track.artist || "Unknown",
+            album: "Cloud Jukebox",
+            artwork: [
+                { src: cover, sizes: '512x512', type: 'image/png' }
+            ]
+        });
+
+        navigator.mediaSession.setActionHandler('play', () => { 
+            Amplitude.play();
+            // 明示的に通知
+            if (navigator.mediaSession.playbackState) navigator.mediaSession.playbackState = "playing";
+        });
+        navigator.mediaSession.setActionHandler('pause', () => { 
+            Amplitude.pause();
+            if (navigator.mediaSession.playbackState) navigator.mediaSession.playbackState = "paused";
+        });
+        navigator.mediaSession.setActionHandler('previoustrack', () => {
+            const prev = Math.max(0, currentTrackIndex - 1);
+            playWithAmplitude(prev);
+        });
+        navigator.mediaSession.setActionHandler('nexttrack', () => { playNextTrack(); });
     }
 
     // --- UI更新 ---

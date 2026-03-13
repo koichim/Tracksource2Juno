@@ -12,9 +12,16 @@
     <!-- AmplitudeJS Library -->
     <script src="https://cdn.jsdelivr.net/npm/amplitudejs@5.3.2/dist/amplitude.min.js"></script>
     <link rel="stylesheet" href="style.css">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#141920">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="apple-touch-icon" href="icon-192x192.png">
 </head>
 
 <body>
+    <!-- 明示的なオーディオ要素を追加（イベント監視の安定性のため） -->
+    <audio id="jukebox-audio" style="display:none;"></audio>
 
     <div class="setup-area">
         <button id="auth_btn" disabled>Loading...</button>
@@ -138,6 +145,15 @@
             }
         }
         window.onload = waitForLibraries;
+
+        // Service Worker Registration
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then(reg => console.log('Service Worker registered', reg))
+                    .catch(err => console.error('Service Worker registration failed', err));
+            });
+        }
 
         // Playlist toggle
         const playlistToggleBtn = document.getElementById('playlist-toggle');
