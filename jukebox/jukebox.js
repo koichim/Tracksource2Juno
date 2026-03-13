@@ -13,7 +13,58 @@ let isPrefetching = false;
 let isShuffleOn = false;
 let isRepeatOn = false;
 let playGeneration = 0; // 世代管理：古い再生予約をキャンセルするため
-const APP_VERSION = "v18.0"; // デバッグ用バージョン
+const APP_VERSION = "v22.0"; // デバッグ用バージョン
+
+// v19: IndexedDB によるキャッシュ管理
+const JukeboxDB = {
+    dbName: 'jukebox_cache_db',
+    dbVersion: 1,
+    db: null,
+    async open() {
+        if (this.db) return this.db;
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open(this.dbName, this.dbVersion);
+            request.onupgradeneeded = (e) => {
+                const db = e.target.result;
+                if (!db.objectStoreNames.contains('playlists')) {
+                    db.createObjectStore('playlists', { keyPath: 'fileId' });
+                }
+            };
+            // v19: 既存DBがある場合のマイグレーション（objectStoreがない場合）
+            request.onerror = () => reject("IndexedDB open error");
+            request.onsuccess = (e) => {
+                this.db = e.target.result;
+                // 万が一Upgradeが走らなかった場合のために手動チェック
+                if (!this.db.objectStoreNames.contains('playlists')) {
+                    this.db.close();
+                    const req2 = indexedDB.open(this.dbName, ++this.dbVersion);
+                    req2.onupgradeneeded = (ev) => ev.target.result.createObjectStore('playlists', { keyPath: 'fileId' });
+                    req2.onsuccess = (ev) => { this.db = ev.target.result; resolve(this.db); };
+                } else {
+                    resolve(this.db);
+                }
+            };
+        });
+    },
+    async get(fileId) {
+        const db = await this.open();
+        return new Promise((resolve) => {
+            const transaction = db.transaction(['playlists'], 'readonly');
+            const request = transaction.objectStore('playlists').get(fileId);
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => resolve(null);
+        });
+    },
+    async set(fileId, data) {
+        const db = await this.open();
+        return new Promise((resolve) => {
+            const transaction = db.transaction(['playlists'], 'readwrite');
+            const request = transaction.objectStore('playlists').put({ fileId, ...data, updatedAt: Date.now() });
+            request.onsuccess = () => resolve();
+            request.onerror = () => resolve();
+        });
+    }
+};
 
 // v18: 物理的に鳴っているオーディオ要素を確実に特定するヘルパー
 const getRealAudio = () => {
@@ -351,51 +402,71 @@ async function findTracksFolder(yearId, yearName) {
         });
         
         // プレイリストファイルを読み込んで、中身のメタデータで表示名を更新する
+        const optionsToAdd = [];
         for (const file of jRes.result.files) {
             const opt = document.createElement('option');
-            opt.value = JSON.stringify({ id: file.id, year: yearName });
-            opt.innerText = `[${yearName}] Loading... ${file.name}`;
-            selector.appendChild(opt);
-
-            try {
-                const jData = await gapi.client.drive.files.get({ fileId: file.id, alt: 'media' });
-                const d = jData.result;
-                if (d && d.date && d.chart_artist && d.chart_title) {
-                    // アーティスト名の重複チェック：タイトルがアーティスト名で始まっているか
-                    const artist = d.chart_artist.trim();
-                    const title = d.chart_title.trim();
-                    const titleL = title.toLowerCase();
-                    const artistL = artist.toLowerCase();
-
-                    // 特定のアーティストの略称などの同一視設定
-                    const aliases = {
-                        "micky more & andy tee": ["mm & at"],
-                        "dave lee zr": ["dave lee"],
-                        "dave lee": ["dave lee zr"]
-                    };
-                    
-                    let isDuplicate = titleL.startsWith(artistL);
-                    
-                    // 略称でも始まっているかチェック
-                    if (!isDuplicate && aliases[artistL]) {
-                        isDuplicate = aliases[artistL].some(a => titleL.startsWith(a.toLowerCase()));
-                    }
-                    
-                    if (isDuplicate) {
-                        // 重複（または略称一致）しているのでアーティスト名を省く
-                        opt.innerText = `${d.date} ${title}`;
-                    } else {
-                        // 重複していないので (artist)'s (title) 形式
-                        opt.innerText = `${d.date} ${artist}'s ${title}`;
-                    }
-                } else {
-                    opt.innerText = `[${yearName}] ${file.name}`;
-                }
-            } catch (err) {
-                console.error("Error renaming playlist:", err);
-                opt.innerText = `[${yearName}] ${file.name}`;
+            const valueObj = { id: file.id, year: yearName };
+            opt.value = JSON.stringify(valueObj);
+            
+            // v19: キャッシュがあれば即座に名前をセット
+            const cached = await JukeboxDB.get(file.id);
+            if (cached && cached.label) {
+                opt.innerText = cached.label;
+                optionsToAdd.push(opt);
+                // v22: キャッシュがあるなら背景での再取得はスキップして通信を節約
+                continue; 
+            } else {
+                opt.innerText = `[${yearName}] Loading... ${file.name}`;
+                optionsToAdd.push(opt);
             }
+
+            // 非同期で最新情報を取得（キャッシュがない場合のみ実行される）
+            (async () => {
+                try {
+                    const jData = await gapi.client.drive.files.get({ fileId: file.id, alt: 'media' });
+                    const d = jData.result;
+                    if (d && d.date && d.chart_artist && d.chart_title) {
+                        const artist = d.chart_artist.trim();
+                        const title = d.chart_title.trim();
+                        const titleL = title.toLowerCase();
+                        const artistL = artist.toLowerCase();
+
+                        const aliases = {
+                            "micky more & andy tee": ["mm & at"],
+                            "dave lee zr": ["dave lee"],
+                            "dave lee": ["dave lee zr"]
+                        };
+                        
+                        let isDuplicate = titleL.startsWith(artistL);
+                        if (!isDuplicate && aliases[artistL]) {
+                            isDuplicate = aliases[artistL].some(a => titleL.startsWith(a.toLowerCase()));
+                        }
+                        
+                        let label = "";
+                        if (isDuplicate) {
+                            label = `${d.date} ${title}`;
+                        } else {
+                            label = `${d.date} ${artist}'s ${title}`;
+                        }
+                        
+                        // 表示を更新
+                        if (opt.innerText !== label) {
+                            opt.innerText = label;
+                        }
+
+                        // メタデータのみキャッシュ（フルJSONは選択時にキャッシュ）
+                        await JukeboxDB.set(file.id, { label, metaOnly: true });
+
+                    } else {
+                        opt.innerText = `[${yearName}] ${file.name}`;
+                    }
+                } catch (err) {
+                    console.error("Error background renaming:", err);
+                }
+            })();
         }
+        // v22: まとめて追加してDOM更新を安定させる
+        selector.append(...optionsToAdd);
     }
 }
 
@@ -403,35 +474,68 @@ async function findTracksFolder(yearId, yearName) {
 selector.onchange = async (e) => {
     if (!e.target.value) return;
 
-    updateStatus("Loading New Playlist...");
-
-    // 1. もし再生中なら一旦止める（任意）
-    if (typeof Amplitude !== 'undefined') {
-        Amplitude.pause();
-    }
+    updateStatus("Loading Playlist...");
+    
+    // v21: 新しいプレイリスト選択時は一旦止める
+    if (typeof Amplitude !== 'undefined') Amplitude.pause();
 
     const data = JSON.parse(e.target.value);
-    const res = await gapi.client.drive.files.get({ fileId: data.id, alt: 'media' });
-    currentPlaylist = res.result.chart;
+    const fileId = data.id;
+    let played = false;
 
-    // 2. リストを新しい内容で描き直す
-    renderList();
-
-    // 3. プレイヤーを表示させる
-    const player = document.getElementById('flat-black-player');
-    if (player) {
-        player.style.display = 'flex'; // 再表示
-        // PC表示の場合は block になるよう、CSSのメディアクエリに合わせる
-        if (window.innerWidth > 500) {
-            player.style.display = 'block';
-        }
+    // 1. キャッシュから即座に復元
+    const cached = await JukeboxDB.get(fileId);
+    if (cached && cached.chart) {
+        console.log("Loading playlist from cache...");
+        currentPlaylist = cached.chart;
+        renderList();
+        showPlayer(data.year);
+        // v21: キャッシュがあれば即座に再生開始
+        playWithAmplitude(0);
+        played = true;
     }
 
-    updateStatus("Ready: " + data.year);
+    // 2. バックグラウンドで最新情報を取得
+    try {
+        const res = await gapi.client.drive.files.get({ fileId: fileId, alt: 'media' });
+        const newChart = res.result.chart;
+        
+        const oldJson = JSON.stringify(currentPlaylist);
+        const newJson = JSON.stringify(newChart);
 
-    // 最初の有効な曲から自動再生を開始
-    playWithAmplitude(0);
+        if (oldJson !== newJson) {
+            console.log("Playlist updated from Drive. Re-rendering...");
+            currentPlaylist = newChart;
+            renderList();
+            showPlayer(data.year);
+            // v21: まだ再生していなければ（キャッシュがなかった等）ここで開始
+            if (!played) {
+                playWithAmplitude(0);
+                played = true;
+            }
+        } else if (!played) {
+            // 内容が同じでも、まだ再生が始まっていなければ開始
+            playWithAmplitude(0);
+            played = true;
+        }
+
+        const label = cached ? cached.label : "";
+        await JukeboxDB.set(fileId, { label, chart: newChart, metaOnly: false });
+
+    } catch (err) {
+        console.error("Error background loading playlist:", err);
+    }
+    
+    updateStatus("Ready");
 };
+
+function showPlayer(year) {
+    const player = document.getElementById('flat-black-player');
+    if (player) {
+        player.style.display = (window.innerWidth > 500) ? 'block' : 'flex';
+    }
+    updateStatus("Ready: " + year);
+}
 
 
 function renderList() {
