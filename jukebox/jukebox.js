@@ -13,7 +13,9 @@ let isPrefetching = false;
 let isShuffleOn = false;
 let isRepeatOn = false;
 let playGeneration = 0; // 世代管理：古い再生予約をキャンセルするため
-const APP_VERSION = "v22.0"; // デバッグ用バージョン
+const APP_VERSION = "v25.0"; // デバッグ用バージョン
+let currentPlaylistDate = ""; // v23: 現在のリストの日付
+let currentIsIncomplete = false; // v25: 現在のリストが未完成か
 
 // v19: IndexedDB によるキャッシュ管理
 const JukeboxDB = {
@@ -411,16 +413,28 @@ async function findTracksFolder(yearId, yearName) {
             // v19: キャッシュがあれば即座に名前をセット
             const cached = await JukeboxDB.get(file.id);
             if (cached && cached.label) {
-                opt.innerText = cached.label;
+                let label = cached.label;
+                // v25: キャッシュ内に未完成フラグがあれば絵文字を付与（多重付与防止）
+                if (cached.isIncomplete && !label.includes('🚧')) {
+                    label += " 🚧";
+                }
+                opt.innerText = label;
                 optionsToAdd.push(opt);
-                // v22: キャッシュがあるなら背景での再取得はスキップして通信を節約
-                continue; 
+                
+                // v25: 6ヶ月以内のフォルダならキャッシュがあっても裏側で更新を確認する（完成したかもしれないので）
+                const sixMonthsAgo = new Date();
+                sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+                const folderYear = parseInt(yearName);
+                if (folderYear < sixMonthsAgo.getFullYear() || (folderYear === sixMonthsAgo.getFullYear() && (sixMonthsAgo.getMonth() + 1) > 6)) {
+                     // 古いフォルダならスキップ
+                     continue;
+                }
             } else {
                 opt.innerText = `[${yearName}] Loading... ${file.name}`;
                 optionsToAdd.push(opt);
             }
 
-            // 非同期で最新情報を取得（キャッシュがない場合のみ実行される）
+            // 非同期で最新情報を取得
             (async () => {
                 try {
                     const jData = await gapi.client.drive.files.get({ fileId: file.id, alt: 'media' });
@@ -428,37 +442,32 @@ async function findTracksFolder(yearId, yearName) {
                     if (d && d.date && d.chart_artist && d.chart_title) {
                         const artist = d.chart_artist.trim();
                         const title = d.chart_title.trim();
-                        const titleL = title.toLowerCase();
-                        const artistL = artist.toLowerCase();
+                        
+                        // v25: 未完成判定 (1-10曲目にファイルがない)
+                        const isIncomplete = d.chart && d.chart.slice(0, 10).some(t => !t.mp3_file || t.mp3_file.trim() === "");
 
-                        const aliases = {
-                            "micky more & andy tee": ["mm & at"],
-                            "dave lee zr": ["dave lee"],
-                            "dave lee": ["dave lee zr"]
-                        };
-                        
-                        let isDuplicate = titleL.startsWith(artistL);
-                        if (!isDuplicate && aliases[artistL]) {
-                            isDuplicate = aliases[artistL].some(a => titleL.startsWith(a.toLowerCase()));
-                        }
-                        
                         let label = "";
+                        const artistL = artist.toLowerCase();
+                        const titleL = title.toLowerCase();
+                        const aliases = { "micky more & andy tee": ["mm & at"], "dave lee zr": ["dave lee"], "dave lee": ["dave lee zr"] };
+                        let isDuplicate = titleL.startsWith(artistL) || (aliases[artistL] && aliases[artistL].some(a => titleL.startsWith(a.toLowerCase())));
+                        
                         if (isDuplicate) {
                             label = `${d.date} ${title}`;
                         } else {
                             label = `${d.date} ${artist}'s ${title}`;
                         }
                         
-                        // 表示を更新
-                        if (opt.innerText !== label) {
-                            opt.innerText = label;
+                        // v25: 絵文字付きラベル
+                        let displayLabel = label;
+                        if (isIncomplete) displayLabel += " 🚧";
+
+                        if (opt.innerText !== displayLabel) {
+                            opt.innerText = displayLabel;
                         }
 
-                        // メタデータのみキャッシュ（フルJSONは選択時にキャッシュ）
-                        await JukeboxDB.set(file.id, { label, metaOnly: true });
-
-                    } else {
-                        opt.innerText = `[${yearName}] ${file.name}`;
+                        // メタデータキャッシュ保存
+                        await JukeboxDB.set(file.id, { label, playlistDate: d.date, isIncomplete, metaOnly: true });
                     }
                 } catch (err) {
                     console.error("Error background renaming:", err);
@@ -488,6 +497,8 @@ selector.onchange = async (e) => {
     if (cached && cached.chart) {
         console.log("Loading playlist from cache...");
         currentPlaylist = cached.chart;
+        currentPlaylistDate = cached.playlistDate || "";
+        currentIsIncomplete = cached.isIncomplete || false;
         renderList();
         showPlayer(data.year);
         // v21: キャッシュがあれば即座に再生開始
@@ -498,14 +509,19 @@ selector.onchange = async (e) => {
     // 2. バックグラウンドで最新情報を取得
     try {
         const res = await gapi.client.drive.files.get({ fileId: fileId, alt: 'media' });
-        const newChart = res.result.chart;
+        const newChart = res.result.chart || [];
+        const newDate = res.result.date || "";
+        // v25: 1-10曲目に未完成があるか
+        const newIsIncomplete = newChart.slice(0, 10).some(t => !t.mp3_file || t.mp3_file.trim() === "");
         
         const oldJson = JSON.stringify(currentPlaylist);
         const newJson = JSON.stringify(newChart);
 
-        if (oldJson !== newJson) {
+        if (oldJson !== newJson || currentPlaylistDate !== newDate || currentIsIncomplete !== newIsIncomplete) {
             console.log("Playlist updated from Drive. Re-rendering...");
             currentPlaylist = newChart;
+            currentPlaylistDate = newDate;
+            currentIsIncomplete = newIsIncomplete;
             renderList();
             showPlayer(data.year);
             // v21: まだ再生していなければ（キャッシュがなかった等）ここで開始
@@ -519,8 +535,12 @@ selector.onchange = async (e) => {
             played = true;
         }
 
-        const label = cached ? cached.label : "";
-        await JukeboxDB.set(fileId, { label, chart: newChart, metaOnly: false });
+        // キャッシュを更新 (labelも保持)
+        const selectedOpt = selector.options[selector.selectedIndex];
+        let label = selectedOpt ? selectedOpt.innerText : (cached ? cached.label : "");
+        // 🚧 があれば除去してから保存（表示時に付与するため）
+        label = label.replace(" 🚧", "");
+        await JukeboxDB.set(fileId, { label, chart: newChart, playlistDate: newDate, isIncomplete: newIsIncomplete, metaOnly: false });
 
     } catch (err) {
         console.error("Error background loading playlist:", err);
@@ -591,6 +611,47 @@ function renderList() {
 
     // プレイリストが新しく描画されたら、スクロール位置を一番上にリセットする
     trackList.scrollTop = 0;
+
+    // v23: 「半年以内の最近のもの」かつ「1-10曲目に未完成がある」場合にアイコンを表示
+    if (currentPlaylistDate) {
+        try {
+            // v25: 日付パースをより堅牢に (スラッシュやハイフンも許容、2桁年も許容)
+            const parts = currentPlaylistDate.split(/[./-]/);
+            if (parts.length >= 2) {
+                let year = parseInt(parts[0]);
+                const month = parseInt(parts[1]);
+                const day = parts[2] ? parseInt(parts[2]) : 1;
+                
+                if (!isNaN(year) && !isNaN(month)) {
+                    // 2桁年の補正 (24 -> 2024)
+                    if (year < 100) year += 2000;
+
+                    const pDate = new Date(year, month - 1, day);
+                    const sixMonthsAgo = new Date();
+                    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+
+                    // v25: currentIsIncomplete フラグを優先（selector.onchangeで算出済み）
+                    if (pDate > sixMonthsAgo && currentIsIncomplete) {
+                        const iconLi = document.createElement('li');
+                        iconLi.style.textAlign = 'center';
+                        iconLi.style.padding = '20px 0';
+                        iconLi.style.border = 'none';
+                        iconLi.style.pointerEvents = 'none'; // クリック不可
+                        // 工事中バリケードのSVG
+                        iconLi.innerHTML = `
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="opacity: 0.7;">
+                                <path d="M12 2L1 21H23L12 2ZM12 6L19.53 19H4.47L12 6Z" fill="#FFA000"/>
+                                <path d="M11 10H13V14H11V10ZM11 16H13V18H11V16Z" fill="#FFA000"/>
+                            </svg>
+                        `;
+                        trackList.appendChild(iconLi);
+                    }
+                }
+            }
+        } catch (e) {
+            console.error("Date parse error:", e);
+        }
+    }
 }
 
 function updateMarquee() {
