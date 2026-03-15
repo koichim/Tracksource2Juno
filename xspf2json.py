@@ -71,6 +71,8 @@ def convert_xspf(xspf_path):
     # External JSON cache to avoid reloading same file
     json_cache = {}
     new_tracks = []  # Tracks to be added this run (not yet in existing chart)
+    seen_basenames = set(existing_basenames)  # Track all seen basenames (existing + new) in real time
+    dup_count = 0  # Count of duplicates removed
 
     tracklist = root.find('x:trackList', ns)
     if tracklist is not None:
@@ -160,27 +162,22 @@ def convert_xspf(xspf_path):
                 }
 
             if track_entry:
-                new_tracks.append(track_entry)
+                bname = os.path.basename(track_entry.get("mp3_file", ""))
+                if bname in seen_basenames:
+                    print(f"Dedup: removing duplicate '{bname}'")
+                    dup_count += 1
+                else:
+                    seen_basenames.add(bname)
+                    new_tracks.append(track_entry)
 
-    # Deduplicate new tracks against all known basenames (existing + newly added)
-    seen_basenames = set(existing_basenames)
-    unique_new = []
-    for entry in new_tracks:
-        bname = os.path.basename(entry.get("mp3_file", ""))
-        if bname not in seen_basenames:
-            seen_basenames.add(bname)
-            unique_new.append(entry)
-        else:
-            print(f"Dedup: removing duplicate '{bname}'")
-    dup_count = len(new_tracks) - len(unique_new)
     # Rebuild: existing entries + unique new entries
-    data["chart"] = [e for e in data["chart"] if os.path.basename(e.get("mp3_file", "")) in existing_basenames] + unique_new
+    data["chart"] = [e for e in data["chart"] if os.path.basename(e.get("mp3_file", "")) in existing_basenames] + new_tracks
 
     with open(output_filename, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
     print(f"Successfully wrote {output_filename}")
-    print(f"Total tracks: {len(data['chart'])} (added: {len(unique_new)}, duplicates removed: {dup_count})")
+    print(f"Total tracks: {len(data['chart'])} (added: {len(new_tracks)}, duplicates removed: {dup_count})")
 
 if __name__ == "__main__":
     import sys

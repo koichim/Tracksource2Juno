@@ -409,6 +409,9 @@ async function findTracksFolder(yearId, yearName) {
             const opt = document.createElement('option');
             const valueObj = { id: file.id, year: yearName };
             opt.value = JSON.stringify(valueObj);
+            // "XXXX favorites.json" パターンを検出して先頭表示用にマーク
+            const isFavoritesFile = /^\d{4}\s+favorites\.json$/i.test(file.name);
+            if (isFavoritesFile) opt.dataset.isFavorites = 'true';
             
             // v19: キャッシュがあれば即座に名前をセット
             const cached = await JukeboxDB.get(file.id);
@@ -476,8 +479,16 @@ async function findTracksFolder(yearId, yearName) {
                 }
             })();
         }
-        // v22: まとめて追加してDOM更新を安定させる
-        selector.append(...optionsToAdd);
+        // v22: favorites を先頭 (position 1) に、それ以外を末尾に追加
+        const favOpts = optionsToAdd.filter(o => o.dataset.isFavorites);
+        const regOpts = optionsToAdd.filter(o => !o.dataset.isFavorites);
+        for (const fo of favOpts) {
+            // selector.options[1] があればその前に挿入、なければ末尾
+            selector.options.length > 1
+                ? selector.insertBefore(fo, selector.options[1])
+                : selector.appendChild(fo);
+        }
+        selector.append(...regOpts);
     }
 }
 
@@ -585,7 +596,7 @@ function renderList() {
 
         li.innerHTML = `
             <div class="meta-container" style="${!hasFile ? 'opacity: 0.4;' : ''}">
-                <b>${track.num}. ${fullTitle}</b><br>
+                <b>${track.num != null ? track.num + '. ' : ''}${fullTitle}</b><br>
                 <small>${track.artist}</small>
             </div>`;
 
