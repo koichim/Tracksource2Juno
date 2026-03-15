@@ -13,9 +13,29 @@ let isPrefetching = false;
 let isShuffleOn = false;
 let isRepeatOn = false;
 let playGeneration = 0; // 世代管理：古い再生予約をキャンセルするため
-const APP_VERSION = "v35.0"; // プロダクション用バージョン
+const APP_VERSION = "v41.0"; // プロダクション用バージョン
 let currentPlaylistDate = ""; // v23: 現在のリストの日付
 let currentIsIncomplete = false; // v25: 現在のリストが未完成か
+const REFLECTION_TIME_DAYS = 15; // v35: 15日間
+const REFLECTION_TIME_MS = REFLECTION_TIME_DAYS * 24 * 60 * 60 * 1000;
+
+/**
+ * プレイリストの表示用ラベルを生成する（アイコン付与）
+ */
+function formatPlaylistLabel(baseLabel, isNew, isUpdated, isIncomplete) {
+    // 既存のアイコン（先頭の🆕, 🆙や末尾の🚧）を徹底的に除去
+    let label = baseLabel.replace(/^[🆕🆙\s]+/, "").replace(/[\s🚧]+$/, "");
+    if (isNew) {
+        label = "🆕 " + label;
+    }
+    if (isUpdated) {
+        label = "🆙 " + label;
+    }
+    if (isIncomplete) {
+        label += " 🚧";
+    }
+    return label;
+}
 
 // v19: IndexedDB によるキャッシュ管理
 const JukeboxDB = {
@@ -59,9 +79,24 @@ const JukeboxDB = {
     },
     async set(fileId, data) {
         const db = await this.open();
+        const existing = await this.get(fileId);
+        const createdAt = (existing && existing.createdAt) ? existing.createdAt : Date.now();
         return new Promise((resolve) => {
             const transaction = db.transaction(['playlists'], 'readwrite');
-            const request = transaction.objectStore('playlists').put({ fileId, ...data, updatedAt: Date.now() });
+            const request = transaction.objectStore('playlists').put({
+                fileId,
+                ...data,
+                createdAt,
+                updatedAt: (data.updatedAt || Date.now())
+            });
+            request.onerror = () => resolve();
+        });
+    },
+    async clearAll() {
+        const db = await this.open();
+        return new Promise((resolve) => {
+            const transaction = db.transaction(['playlists'], 'readwrite');
+            const request = transaction.objectStore('playlists').clear();
             request.onsuccess = () => resolve();
             request.onerror = () => resolve();
         });
@@ -118,7 +153,7 @@ const syncUI = () => {
         }
 
         const state = actualPaused ? 'paused' : 'playing';
-        
+
         // 1. ボタンの状態同期 (属性とクラス)
         if (playPauseBtn.getAttribute('amplitude-player-state') !== state) playPauseBtn.setAttribute('amplitude-player-state', state);
         if (actualPaused) {
@@ -211,7 +246,7 @@ window.togglePlaylistView = function () {
 
     const isOpen = player.classList.toggle('playlist-open');
     list.style.display = isOpen ? 'block' : 'none';
-    
+
     if (text) {
         text.innerText = isOpen ? "CLOSE TRACK LIST" : "SHOW TRACK LIST";
     }
@@ -366,6 +401,16 @@ async function initApp() {
 
         console.log("Playlist Toggled:", isOpen);
     };
+
+    const clearBtn = document.getElementById('clear-cache-btn');
+    if (clearBtn) {
+        clearBtn.onclick = async () => {
+            if (confirm("全てのキャッシュを削除して再読み込みしますか？")) {
+                await JukeboxDB.clearAll();
+                location.reload();
+            }
+        };
+    }
 }
 
 authBtn.onclick = () => tokenClient.requestAccessToken({ prompt: '' });
@@ -388,7 +433,21 @@ async function findYearFolders(parentId) {
     });
     selector.innerHTML = '<option value="">Select Playlist...</option>';
     const yearFolders = res.result.files.filter(f => f.name.match(/^\d{4}$/) && parseInt(f.name) >= 2023);
-    for (const f of yearFolders) await findTracksFolder(f.id, f.name);
+    
+    let allFavs = [];
+    let allRegs = [];
+
+    for (const f of yearFolders) {
+        const items = await findTracksFolder(f.id, f.name);
+        allFavs.push(...items.favs);
+        allRegs.push(...items.regs);
+    }
+
+    // 名前（ファイル名）で逆順ソート（新しい順）
+    allFavs.sort((a, b) => b.dataset.fileName.localeCompare(a.dataset.fileName));
+    allRegs.sort((a, b) => b.dataset.fileName.localeCompare(a.dataset.fileName));
+
+    selector.append(...allFavs, ...allRegs);
     updateStatus("Playlists Loaded.");
 }
 
@@ -397,12 +456,16 @@ async function findTracksFolder(yearId, yearName) {
         q: `'${yearId}' in parents and name = 'tracks' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
         fields: 'files(id)'
     });
+    
+    // 返り値用の配列
+    const results = { favs: [], regs: [] };
+
     for (const tf of res.result.files) {
         const jRes = await gapi.client.drive.files.list({
             q: `'${tf.id}' in parents and mimeType = 'application/json' and trashed = false`,
             fields: 'files(id, name)'
         });
-        
+
         // プレイリストファイルを読み込んで、中身のメタデータで表示名を更新する
         const optionsToAdd = [];
         for (const file of jRes.result.files) {
@@ -412,41 +475,53 @@ async function findTracksFolder(yearId, yearName) {
             // "XXXX favorites.json" パターンを検出して先頭表示用にマーク
             const isFavoritesFile = /^\d{4}\s+favorites\.json$/i.test(file.name);
             if (isFavoritesFile) opt.dataset.isFavorites = 'true';
-            
+            opt.dataset.fileName = file.name; // ソート用にファイル名を保存
+
             // v19: キャッシュがあれば即座に名前をセット
             const cached = await JukeboxDB.get(file.id);
             if (cached && cached.label) {
-                let label = cached.label;
-                // v25: キャッシュ内に未完成フラグがあれば絵文字を付与
-                // v30: 🚧 に戻す
-                if (cached.isIncomplete && !label.includes('🚧')) {
-                    label += " 🚧";
-                }
-                opt.innerText = label;
-                optionsToAdd.push(opt);
+                const now = Date.now();
+                const createdAt = cached.createdAt || now;
+                const updatedAt = cached.updatedAt || 0;
+                const isNew = (now - createdAt) < REFLECTION_TIME_MS;
+                const isFavoritesFile = /favorites/i.test(file.name);
                 
-                // v25: 6ヶ月以内のフォルダならキャッシュがあっても裏側で更新を確認する（完成したかもしれないので）
-                const sixMonthsAgo = new Date();
-                sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+                let isUpdated = false;
+                if (cached.isIncomplete || isFavoritesFile) {
+                    if ((now - updatedAt) < REFLECTION_TIME_MS) {
+                        isUpdated = true;
+                    }
+                }
+
+                let displayLabel = formatPlaylistLabel(cached.label, isNew, isUpdated, cached.isIncomplete);
+                
+                opt.innerText = displayLabel;
+                isFavoritesFile ? results.favs.push(opt) : results.regs.push(opt);
+
+                // v35: フォルダ年が現在の年より古い場合のみスキップする（2025年分が2026年になっても消えないように）
                 const folderYear = parseInt(yearName);
-                if (folderYear < sixMonthsAgo.getFullYear() || (folderYear === sixMonthsAgo.getFullYear() && (sixMonthsAgo.getMonth() + 1) > 6)) {
-                     // 古いフォルダならスキップ
+                const currentYear = new Date().getFullYear();
+                if (folderYear < currentYear - 1) {
                      continue;
                 }
             } else {
                 opt.innerText = `[${yearName}] Loading... ${file.name}`;
-                optionsToAdd.push(opt);
+                isFavoritesFile ? results.favs.push(opt) : results.regs.push(opt);
             }
 
             // 非同期で最新情報を取得
             (async () => {
                 try {
                     const jData = await gapi.client.drive.files.get({ fileId: file.id, alt: 'media' });
-                    const d = jData.result;
+                    let d = jData.result;
+                    if (typeof d === 'string') {
+                        try { d = JSON.parse(d); } catch(e) { }
+                    }
+
                     if (d && d.date && d.chart_artist && d.chart_title) {
                         const artist = d.chart_artist.trim();
                         const title = d.chart_title.trim();
-                        
+
                         // v25: 未完成判定 (1-10曲目にファイルがない)
                         const isIncomplete = d.chart && d.chart.slice(0, 10).some(t => !t.mp3_file || t.mp3_file.trim() === "");
 
@@ -455,41 +530,55 @@ async function findTracksFolder(yearId, yearName) {
                         const titleL = title.toLowerCase();
                         const aliases = { "micky more & andy tee": ["mm & at"], "dave lee zr": ["dave lee"], "dave lee": ["dave lee zr"] };
                         let isDuplicate = titleL.startsWith(artistL) || (aliases[artistL] && aliases[artistL].some(a => titleL.startsWith(a.toLowerCase())));
-                        
+
                         if (isDuplicate) {
                             label = `${d.date} ${title}`;
                         } else {
                             label = `${d.date} ${artist}'s ${title}`;
                         }
-                        
+
+                        const now = Date.now();
+                        const createdAt = (cached && cached.createdAt) ? cached.createdAt : now;
+                        const isFavoritesFile = /favorites/i.test(file.name);
+                        const isNew = (now - createdAt) < REFLECTION_TIME_MS;
+
+                        let isUpdated = false;
+                        if (isFavoritesFile || (cached && cached.isIncomplete)) {
+                            const oldChartJson = (cached && cached.chart) ? JSON.stringify(cached.chart) : "";
+                            const newChartJson = JSON.stringify(d.chart || []);
+                            const changed = (!isNew && oldChartJson !== newChartJson);
+                            const withinReflection = (cached && cached.updatedAt && (now - cached.updatedAt) < REFLECTION_TIME_MS);
+                            if (changed || withinReflection) {
+                                isUpdated = true;
+                            }
+                        }
+
+                        // updatedAt は内容が変わった時だけ更新する
+                        let updatedAt = (cached && cached.updatedAt) ? cached.updatedAt : now;
+                        if (isUpdated && (!cached || (cached.chart && JSON.stringify(cached.chart) !== JSON.stringify(d.chart)))) {
+                            updatedAt = now;
+                        }
+
                         // v25: 絵文字付きラベル
-                        // v30: 🚧 に戻す
-                        let displayLabel = label;
-                        if (isIncomplete) displayLabel += " 🚧";
+                        const displayLabel = formatPlaylistLabel(label, isNew, isUpdated, isIncomplete);
 
                         if (opt.innerText !== displayLabel) {
                             opt.innerText = displayLabel;
                         }
 
                         // メタデータキャッシュ保存
-                        await JukeboxDB.set(file.id, { label, playlistDate: d.date, isIncomplete, metaOnly: true });
+                        // Favoritesの場合はchartも保存する
+                        const cacheData = { label, playlistDate: d.date, isIncomplete, updatedAt, metaOnly: !isFavoritesFile };
+                        if (isFavoritesFile) cacheData.chart = d.chart;
+                        await JukeboxDB.set(file.id, cacheData);
                     }
                 } catch (err) {
                     console.error("Error background renaming:", err);
                 }
             })();
         }
-        // v22: favorites を先頭 (position 1) に、それ以外を末尾に追加
-        const favOpts = optionsToAdd.filter(o => o.dataset.isFavorites);
-        const regOpts = optionsToAdd.filter(o => !o.dataset.isFavorites);
-        for (const fo of favOpts) {
-            // selector.options[1] があればその前に挿入、なければ末尾
-            selector.options.length > 1
-                ? selector.insertBefore(fo, selector.options[1])
-                : selector.appendChild(fo);
-        }
-        selector.append(...regOpts);
     }
+    return results;
 }
 
 // 3. リスト表示
@@ -497,7 +586,7 @@ selector.onchange = async (e) => {
     if (!e.target.value) return;
 
     updateStatus("Loading Playlist...");
-    
+
     // v21: 新しいプレイリスト選択時は一旦止める
     if (typeof Amplitude !== 'undefined') Amplitude.pause();
 
@@ -526,7 +615,7 @@ selector.onchange = async (e) => {
         const newDate = res.result.date || "";
         // v25: 1-10曲目に未完成があるか
         const newIsIncomplete = newChart.slice(0, 10).some(t => !t.mp3_file || t.mp3_file.trim() === "");
-        
+
         const oldJson = JSON.stringify(currentPlaylist);
         const newJson = JSON.stringify(newChart);
 
@@ -552,13 +641,14 @@ selector.onchange = async (e) => {
         const selectedOpt = selector.options[selector.selectedIndex];
         let label = selectedOpt ? selectedOpt.innerText : (cached ? cached.label : "");
         // v29: 絵文字を確実に除去してから保存
-        label = label.replace(" 🚧", "").replace(" 👷", "");
+        label = label.replace(/^[🆕🆙\s]+/, "")
+            .replace(/[\s🚧👷]+$/, "");
         await JukeboxDB.set(fileId, { label, chart: newChart, playlistDate: newDate, isIncomplete: newIsIncomplete, metaOnly: false });
 
     } catch (err) {
         console.error("Error background loading playlist:", err);
     }
-    
+
     updateStatus("Ready");
 };
 
@@ -782,7 +872,7 @@ function playNextTrack() {
         if (validIndices.length > 0) {
             let filtered = validIndices.filter(i => i !== currentTrackIndex);
             if (filtered.length === 0) filtered = validIndices;
-            
+
             const randomIdx = filtered[Math.floor(Math.random() * filtered.length)];
             playWithAmplitude(randomIdx);
             return;
@@ -848,7 +938,7 @@ async function playWithAmplitude(index) {
                 // 有効な曲が見つかった
                 break;
             }
-            
+
             console.log(`[Gen ${thisGen}] Skipping index ${index} (No valid file).`);
             index++;
             searchCount++;
@@ -958,7 +1048,7 @@ function startPlayback(index, url, cover, gen) {
         cover_art_url: cover
     };
     Amplitude.playNow(songData);
-    
+
     // 2. スマホ等での再生失敗対策：少し後に再生状態を確認し、止まっていれば再度Playを叩く
     setTimeout(() => {
         const audio = Amplitude.getAudio ? Amplitude.getAudio() : document.querySelector('audio');
@@ -994,7 +1084,7 @@ function startPlayback(index, url, cover, gen) {
             ]
         });
 
-        navigator.mediaSession.setActionHandler('play', async () => { 
+        navigator.mediaSession.setActionHandler('play', async () => {
             try {
                 await Amplitude.play();
                 navigator.mediaSession.playbackState = "playing";
@@ -1002,7 +1092,7 @@ function startPlayback(index, url, cover, gen) {
                 console.error("MediaSession Play Error:", err);
             }
         });
-        navigator.mediaSession.setActionHandler('pause', () => { 
+        navigator.mediaSession.setActionHandler('pause', () => {
             try {
                 Amplitude.pause();
                 navigator.mediaSession.playbackState = "paused";
