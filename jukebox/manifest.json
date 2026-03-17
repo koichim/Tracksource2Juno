@@ -2,7 +2,7 @@
   "name": "Cloud Jukebox",
   "short_name": "Jukebox",
   "description": "A Google Drive powered music player",
-  "start_url": "./index.html",
+  "start_url": "./jukebox.html",
   "display": "standalone",
   "background_color": "#141920",
   "theme_color": "#141920",

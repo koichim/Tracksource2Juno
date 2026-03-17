@@ -2,7 +2,8 @@ const CACHE_NAME = 'jukebox-v41';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
-  './style.css',
+  './jukebox.html',
+  './jukebox.css',
   './jukebox.js',
   './manifest.json',
   './icon-192x192.png',

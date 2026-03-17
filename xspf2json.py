@@ -171,7 +171,7 @@ def convert_xspf(xspf_path):
                     new_tracks.append(track_entry)
 
     # Rebuild: existing entries + unique new entries
-    data["chart"] = [e for e in data["chart"] if os.path.basename(e.get("mp3_file", "")) in existing_basenames] + new_tracks
+    data["chart"] = new_tracks + [e for e in data["chart"] if os.path.basename(e.get("mp3_file", "")) in existing_basenames]
 
     with open(output_filename, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)

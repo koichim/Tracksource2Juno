@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <!-- Googleのスクリプト実行とデータURI画像の読み込みを明示的に許可する設定 -->
+    <meta http-equiv="Content-Security-Policy"
+        content="script-src 'self' https://apis.google.com https://accounts.google.com https://*.jsdelivr.net https://*.jsdelivr.com https://cdnjs.cloudflare.com 'unsafe-inline' 'unsafe-eval'; img-src 'self' data: blob:;">
+    <title>Cloud Jukebox</title>
+
+    <!-- AmplitudeJS Library -->
+    <script src="https://cdn.jsdelivr.net/npm/amplitudejs@5.3.2/dist/amplitude.min.js"></script>
+    <link rel="stylesheet" href="jukebox.css?v=41.0">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#141920">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="apple-touch-icon" href="icon-192x192.png">
+</head>
+
+<body>
+    <!-- 明示的なオーディオ要素を追加（イベント監視の安定性のため） -->
+    <audio id="jukebox-audio" style="display:none;"></audio>
+
+    <div class="setup-area">
+        <button id="auth_btn" disabled>Loading...</button>
+        <select id="playlist_selector" style="display:none;"></select>
+        <div id="status" style="font-size:12px; color:#888;">Initializing...</div>
+    </div>
+
+
+    <div id="flat-black-player">
+        <div id="playlist-bar-toggle" onclick="togglePlaylistView()"
+            style="cursor:pointer; background:#141920; height:45px; display:flex; align-items:center; justify-content:center; position:relative; z-index:10001;">
+            <span id="playlist-status-text">SHOW TRACK LIST</span>
+            <svg id="playlist-arrow" width="16" height="16" viewBox="0 0 24 24" fill="white"
+                style="transition:0.3s; margin-left:10px;">
+                <path d="M7 10l5 5 5-5z"></path>
+            </svg>
+        </div>
+
+        <!-- リスト本体（z-index を最大にして、最前面に強制表示） -->
+        <ul id="track_list"
+            style="display:none; position:absolute; top:45px; left:0; width:100%; height:calc(100% - 45px); background:#141920; z-index:10000; overflow-y:auto; margin:0; padding:0; list-style:none;">
+        </ul>
+
+        <div class="player-top">
+            <img data-amplitude-song-info="cover_art_url" class="album-art" alt="Cover Art" />
+            <div class="now-playing-meta-container">
+                <!-- 曲名を囲む専用の箱を追加 -->
+                <div class="title-wrapper">
+                    <div data-amplitude-song-info="name" id="now-playing-title" class="now-playing-title"></div>
+                </div>
+                <!-- アーティスト名も長ければ流れるように専用の箱を追加 -->
+                <div class="artist-wrapper">
+                    <div data-amplitude-song-info="artist" id="now-playing-artist" class="now-playing-artist"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <div class="amplitude-shuffle" id="shuffle">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="#666">
+                    <path
+                        d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.38 10.17l-1.41 1.41L17.96 19.5 16.5 21H22v-5.5l-2.04 2.04-3.08-3.09z" />
+                </svg>
+            </div>
+
+            <div class="amplitude-prev" id="custom-prev">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="white">
+                    <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" />
+                </svg>
+            </div>
+
+            <!-- 中央のボタン：中のSVGサイズを固定し、CSSで中央寄せします -->
+            <!-- v17: amplitude-play-pause クラスを削除し、ライブラリによるDOM操作を無効化 -->
+            <div class="custom-play-pause" id="play-pause">
+                <svg class="play-icon" viewBox="0 0 24 24">
+                    <path d="M9 5v14l10-7z" fill="white" />
+                </svg>
+                <svg class="pause-icon" viewBox="0 0 24 24">
+                    <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" fill="white" />
+                </svg>
+            </div>
+
+            <div class="amplitude-next" id="custom-next">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="white">
+                    <path d="M6 18l8.5-6L6 6v12zM16 6h2v12h-2z" />
+                </svg>
+            </div>
+
+            <div class="amplitude-repeat" id="repeat">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="#666">
+                    <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z" />
+                </svg>
+            </div>
+        </div>
+
+        <div class="progress-container">
+            <!-- バーとつまみのエリア -->
+            <div class="bar-wrapper">
+                <progress class="amplitude-song-played-progress"></progress>
+                <input type="range" class="amplitude-song-slider" step=".1" />
+            </div>
+            <!-- 時間表示のエリア -->
+            <div class="time-container">
+                <span class="amplitude-current-time">00:00</span>
+                <span class="amplitude-duration-time">00:00</span>
+            </div>
+        </div>
+        <div id="app-version-footer" style="font-size:11px; color:#777; text-align:center; padding:15px 0 40px 0; background-color: #111; width: 100%; border-top: 1px solid #222;">
+            <div style="margin-bottom: 8px;">v41.0</div>
+            <div>
+                <span id="clear-cache-btn" style="font-size: 11px; color: #55b560; cursor: pointer; text-decoration: underline; font-weight: bold; background: #1a1f26; padding: 6px 12px; border-radius: 4px; border: 1px solid #333; display: inline-block;">[Clear Cache]</span>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js"></script>
+    <script src="https://apis.google.com/js/api.js"></script>
+    <script src="https://accounts.google.com/gsi/client"></script>
+    <script src="jukebox.js?v=41.0"></script>
+
+    <script>
+        // togglePlaylistView は jukebox.js 側で window.togglePlaylistView として定義されています
+    </script>
+
+
+    <script>
+        // ライブラリの存在を確認してから開始
+        function waitForLibraries() {
+            if (typeof gapi !== 'undefined' && window.google && window.google.accounts) {
+                console.log("Libraries detected.");
+                initApp(); // jukebox.js内の関数
+            } else {
+                console.log("Waiting for Google Libraries...");
+                setTimeout(waitForLibraries, 200);
+            }
+        }
+        window.onload = waitForLibraries;
+
+
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js?vv=41')
+                    .then(reg => console.log('Service Worker registered', reg))
+                    .catch(err => console.error('Service Worker registration failed', err));
+            });
+        }
+
+        // Playlist toggle
+        const playlistToggleBtn = document.getElementById('playlist-toggle');
+        const playerElement = document.getElementById('flat-black-player');
+        const trackListElement = document.getElementById('track_list');
+
+        if (playlistToggleBtn) {
+            playlistToggleBtn.addEventListener('click', () => {
+                const playerElement = document.getElementById('flat-black-player');
+                if (playerElement) playerElement.classList.toggle('playlist-open');
+            });
+        }
+
+        trackListElement.addEventListener('click', (e) => {
+            // When a song is clicked inside the list, close the playlist overlay.
+            if (e.target.closest('li.amplitude-song-container')) {
+                playerElement.classList.remove('playlist-open');
+            }
+        });
+    </script>
+</body>
+
+</html>
