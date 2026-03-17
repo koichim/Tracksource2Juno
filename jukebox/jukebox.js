@@ -18,6 +18,8 @@ let currentPlaylistDate = ""; // v23: 現在のリストの日付
 let currentIsIncomplete = false; // v25: 現在のリストが未完成か
 const REFLECTION_TIME_DAYS = 15; // v35: 15日間
 const REFLECTION_TIME_MS = REFLECTION_TIME_DAYS * 24 * 60 * 60 * 1000;
+let currentIsNewPlaylist = false; // v42: 現在のプレイリストが「新着」か
+let currentNewMp3s = new Set();    // v42: 🆙プレイリスト内で新しく追加された曲のセット
 
 /**
  * プレイリストの表示用ラベルを生成する（アイコン付与）
@@ -544,8 +546,8 @@ async function findTracksFolder(yearId, yearName) {
 
                         let isUpdated = false;
                         if (isFavoritesFile || (cached && cached.isIncomplete)) {
-                            const oldChartJson = (cached && cached.chart) ? JSON.stringify(cached.chart) : "";
-                            const newChartJson = JSON.stringify(d.chart || []);
+                            const oldChartJson = (cached && cached.chart) ? JSON.stringify(cached.chart.slice(0, 10)) : "";
+                            const newChartJson = JSON.stringify((d.chart || []).slice(0, 10));
                             const changed = (!isNew && oldChartJson !== newChartJson);
                             const withinReflection = (cached && cached.updatedAt && (now - cached.updatedAt) < REFLECTION_TIME_MS);
                             if (changed || withinReflection) {
@@ -601,6 +603,13 @@ selector.onchange = async (e) => {
         currentPlaylist = cached.chart;
         currentPlaylistDate = cached.playlistDate || "";
         currentIsIncomplete = cached.isIncomplete || false;
+        
+        // v42: 初期化（全体描画用にフラグを立てるが、後の比較で上書きされる可能性あり）
+        const selectedOpt = selector.options[selector.selectedIndex];
+        const labelText = selectedOpt ? selectedOpt.innerText : "";
+        currentIsNewPlaylist = labelText.startsWith("🆕");
+        currentNewMp3s.clear();
+
         renderList();
         showPlayer(data.year);
         // v21: キャッシュがあれば即座に再生開始
@@ -621,6 +630,26 @@ selector.onchange = async (e) => {
 
         if (oldJson !== newJson || currentPlaylistDate !== newDate || currentIsIncomplete !== newIsIncomplete) {
             console.log("Playlist updated from Drive. Re-rendering...");
+            
+            // v42: 新着判定と新曲比較
+            const selectedOpt = selector.options[selector.selectedIndex];
+            const labelText = selectedOpt ? selectedOpt.innerText : "";
+            currentIsNewPlaylist = labelText.startsWith("🆕");
+            currentNewMp3s.clear();
+            
+            if (!currentIsNewPlaylist && labelText.startsWith("🆙") && currentPlaylist.length > 0) {
+                // 既存のMP3ファイル名のセットを作成
+                const oldMp3s = new Set(currentPlaylist.map(t => t.mp3_file ? t.mp3_file.split('/').pop() : "").filter(f => f));
+                newChart.forEach(t => {
+                    if (t.mp3_file) {
+                        const bname = t.mp3_file.split('/').pop();
+                        if (bname && !oldMp3s.has(bname)) {
+                            currentNewMp3s.add(bname);
+                        }
+                    }
+                });
+            }
+
             currentPlaylist = newChart;
             currentPlaylistDate = newDate;
             currentIsIncomplete = newIsIncomplete;
@@ -684,9 +713,23 @@ function renderList() {
             li.classList.add('disabled');
         }
 
+        // v42: Newアイコンの判定
+        let showNewIcon = false;
+        if (hasFile) {
+            if (currentIsNewPlaylist) {
+                showNewIcon = true;
+            } else {
+                const bname = track.mp3_file.split('/').pop();
+                if (bname && currentNewMp3s.has(bname)) {
+                    showNewIcon = true;
+                }
+            }
+        }
+        const newIconHtml = showNewIcon ? '<span style="color: #55b560; margin-right: 4px; font-size: 0.9em;">🆕</span>' : '';
+
         li.innerHTML = `
             <div class="meta-container" style="${!hasFile ? 'opacity: 0.4;' : ''}">
-                <b>${track.num != null ? track.num + '. ' : ''}${fullTitle}</b><br>
+                <b>${newIconHtml}${track.num != null ? track.num + '. ' : ''}${fullTitle}</b><br>
                 <small>${track.artist}</small>
             </div>`;
 
