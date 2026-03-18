@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="ja">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -83,55 +84,113 @@
             box-shadow: 0 15px 40px rgba(85, 181, 96, 0.5);
         }
 
-        .features {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 30px;
-            margin-top: 100px;
+        .info-section {
+            margin-top: 60px;
+            display: flex;
+            justify-content: center;
         }
 
-        .feature-card {
+        .info-card {
             background: var(--card-bg);
-            border-radius: 24px;
             padding: 40px;
-            backdrop-filter: blur(20px);
+            border-radius: 24px;
             border: 1px solid var(--glass);
-            transition: all 0.4s ease;
-            opacity: 0;
-            transform: translateY(30px);
+            max-width: 800px;
+            width: 100%;
         }
 
-        .feature-card:nth-child(1) { animation: fadeInUp 0.8s 0.2s forwards; }
-        .feature-card:nth-child(2) { animation: fadeInUp 0.8s 0.4s forwards; }
-        .feature-card:nth-child(3) { animation: fadeInUp 0.8s 0.6s forwards; }
-
-        .feature-card:hover {
-            transform: translateY(-10px);
-            border-color: rgba(85, 181, 96, 0.4);
-            background: rgba(25, 30, 40, 0.8);
-        }
-
-        .feature-icon {
-            font-size: 2.5rem;
-            margin-bottom: 20px;
-        }
-
-        .feature-card h3 {
-            font-size: 1.5rem;
-            margin-bottom: 15px;
+        .info-card h3 {
             color: var(--accent);
+            margin-bottom: 25px;
+            font-size: 1.8rem;
+            text-align: center;
+            border-bottom: 1px solid var(--glass);
+            padding-bottom: 15px;
         }
 
-        .feature-card p {
+        .playlist-type {
+            margin-bottom: 30px;
+        }
+
+        .playlist-type h4 {
+            color: var(--text-main);
+            margin-bottom: 10px;
+            font-size: 1.2rem;
+            display: flex;
+            align-items: center;
+        }
+
+        .playlist-type p {
+            color: var(--text-dim);
+            line-height: 1.7;
+            margin-bottom: 10px;
+        }
+
+        .playlist-type ul {
+            padding-left: 20px;
             color: var(--text-dim);
         }
 
+        .playlist-type li {
+            margin-bottom: 8px;
+            line-height: 1.6;
+        }
+
+        .playlist-type a {
+            color: var(--accent);
+            text-decoration: none;
+            border-bottom: 1px dotted var(--accent);
+        }
+
+        .app-icon {
+            font-size: 1.1em;
+            margin: 0 2px;
+            display: inline-block;
+            vertical-align: middle;
+        }
+
+        .app-icon.green {
+            color: #55b560;
+            filter: drop-shadow(0 0 5px rgba(85, 181, 96, 0.3));
+        }
+
+        .pwa-instruction {
+            margin-top: 40px;
+            text-align: center;
+        }
+
+        .instruction-body h3 {
+            color: var(--accent);
+            margin-bottom: 20px;
+            font-size: 1.5rem;
+            text-align: center;
+        }
+
+        .instruction-body p {
+            color: var(--text-dim);
+            margin-bottom: 15px;
+            line-height: 1.8;
+        }
+
+        .instruction-body strong {
+            color: var(--text-main);
+            background: rgba(85, 181, 96, 0.2);
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+
         @keyframes fadeIn {
-            to { opacity: 1; transform: translateY(0); }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         @keyframes fadeInUp {
-            to { opacity: 1; transform: translateY(0); }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         .bg-glow {
@@ -155,40 +214,63 @@
         }
 
         @media (max-width: 600px) {
-            h1 { font-size: 2.5rem; }
-            .container { padding: 40px 20px; }
+            h1 {
+                font-size: 2.5rem;
+            }
+
+            .container {
+                padding: 40px 20px;
+            }
         }
     </style>
 </head>
+
 <body>
     <div class="bg-glow"></div>
-    
+
     <div class="container">
         <header>
             <h1>Cloud Jukebox</h1>
-            <p class="tagline">Experience your music, everywhere.</p>
             <div class="hero-action">
                 <a href="jukebox.html" class="btn-launch">Launch Player</a>
             </div>
         </header>
 
-        <section class="features">
-            <div class="feature-card">
-                <div class="feature-icon">☁️</div>
-                <h3>Cloud Driven</h3>
-                <p>Google Driveをストレージとして活用。音楽ファイルをアップロードするだけで、どこからでもアクセス可能です。</p>
+        <section class="pwa-instruction">
+            <div class="instruction-body">
+                <h3>スマートフォンでアプリとして使う</h3>
+                <p>ホーム画面にアイコンを追加するには、まず上のボタンから「Launch Player」を起動してください。</p>
+                <p>起動後、ブラウザのメニューから <strong>「ホーム画面に追加」</strong> を選択すると、アプリとして登録されます。</p>
             </div>
+        </section>
 
-            <div class="feature-card">
-                <div class="feature-icon">📁</div>
-                <h3>Dynamic Playlists</h3>
-                <p>XSPF形式のプレイリストを自動解析。最新の追加楽曲が常にリストの先頭に表示され、聴きたい曲をすぐに見つけられます。</p>
-            </div>
-
-            <div class="feature-card">
-                <div class="feature-icon">⚡</div>
-                <h3>Fluid UI</h3>
-                <p>プレミアムなダークモードとスムーズなアニメーション。楽曲の先読みキャッシュにより、シームレスな再生体験を提供します。</p>
+        <section class="info-section">
+            <div class="info-card">
+                <h3>DJチャートの種類</h3>
+                <div class="playlist-type">
+                    <h4>Koichi Masuda's 20xx favorites</h4>
+                    <p>私自身のお気に入りの楽曲を厳選してピックアップしたアーカイブです。おおよそ月1回の頻度で更新され、新しく追加された楽曲には <span class="app-icon green">🆕</span> アイコンが付き、そのアイコンは <strong>15日間</strong> 保持されます。</p>
+                </div>
+                <div class="playlist-type">
+                    <h4>DJ Playlists (Traxsource Charts)</h4>
+                    <p><a href="https://www.traxsource.com/dj-top-10s/all?ipp=30" target="_blank">Traxsource</a>
+                        のDJチャートを元に構成されています。</p>
+                    <ul>
+                        <li>気になるDJのチャートから、基本として <strong>Best 10</strong> までの楽曲を購入・収録しています。</li>
+                        <li>11位以降の楽曲でも、既に所持している場合はDJチャートに含まれます。</li>
+                        <li><strong>🚧（工事中アイコン）</strong>: チャートに含まれる曲がまだプロモ盤や発売前で未購入の場合、Top 10が揃うまでこのDJチャートにはアイコンが表示されます。</li>
+                    </ul>
+                </div>
+                <div class="playlist-type">
+                    <h4>更新・購入スケジュール</h4>
+                    <p>例外はありますが、概ね以下のスケジュールでメンテナンスを行っています。</p>
+                    <ul>
+                        <li><strong>毎月第1土日</strong>: 新規DJチャートの追加と楽曲購入。新規追加されたDJチャートには <span class="app-icon green">🆕</span> アイコンが付きます。</li>
+                        <li><strong>毎月最終土日</strong>: 🚧（工事中）DJチャートの補完（不足曲の追加購入）。</li>
+                        <li><strong>更新時のサイン</strong>: 既存のDJチャートに曲が追加された場合、チャート名に <span class="app-icon green">🆙</span> が付き、追加された楽曲（Track内）には <span class="app-icon green">🆕</span> が表示されます。</li>
+                        <li><strong>表示期間</strong>: <span class="app-icon green">🆕</span> と <span class="app-icon green">🆙</span> のアイコンは、アプリを起動して新しい（または更新された）要素が見つかってから <strong>15日間</strong> 表示され続けます。</li>
+                    </ul>
+                </div>
             </div>
         </section>
 

@@ -396,7 +396,7 @@ async function initApp() {
         const isOpen = playerFrame.classList.toggle('playlist-open');
 
         // 文字の更新
-        statusText.innerText = isOpen ? "Close Playlist" : "Show Playlist";
+        statusText.innerText = isOpen ? "Close DJ Chart" : "Show DJ Chart";
 
         // CSSだけで効かない場合のために、直接 style も叩く（念のため）
         trackListEl.style.display = isOpen ? "block" : "none";
@@ -433,7 +433,7 @@ async function findYearFolders(parentId) {
         q: `'${parentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
         fields: 'files(id, name)'
     });
-    selector.innerHTML = '<option value="">Select Playlist...</option>';
+    selector.innerHTML = '<option value="">Select DJ Chart...</option>';
     const yearFolders = res.result.files.filter(f => f.name.match(/^\d{4}$/) && parseInt(f.name) >= 2023);
     
     let allFavs = [];
@@ -450,7 +450,7 @@ async function findYearFolders(parentId) {
     allRegs.sort((a, b) => b.dataset.fileName.localeCompare(a.dataset.fileName));
 
     selector.append(...allFavs, ...allRegs);
-    updateStatus("Playlists Loaded.");
+    updateStatus("DJ Charts Loaded.");
 }
 
 async function findTracksFolder(yearId, yearName) {
@@ -587,7 +587,7 @@ async function findTracksFolder(yearId, yearName) {
 selector.onchange = async (e) => {
     if (!e.target.value) return;
 
-    updateStatus("Loading Playlist...");
+    updateStatus("Loading DJ Chart...");
 
     // v21: 新しいプレイリスト選択時は一旦止める
     if (typeof Amplitude !== 'undefined') Amplitude.pause();
@@ -629,7 +629,7 @@ selector.onchange = async (e) => {
         const newJson = JSON.stringify(newChart);
 
         if (oldJson !== newJson || currentPlaylistDate !== newDate || currentIsIncomplete !== newIsIncomplete) {
-            console.log("Playlist updated from Drive. Re-rendering...");
+            console.log("DJ Chart updated from Drive. Re-rendering...");
             
             // v42: 新着判定と新曲比較
             const selectedOpt = selector.options[selector.selectedIndex];
@@ -675,7 +675,7 @@ selector.onchange = async (e) => {
         await JukeboxDB.set(fileId, { label, chart: newChart, playlistDate: newDate, isIncomplete: newIsIncomplete, metaOnly: false });
 
     } catch (err) {
-        console.error("Error background loading playlist:", err);
+        console.error("Error background loading DJ Chart:", err);
     }
 
     updateStatus("Ready");

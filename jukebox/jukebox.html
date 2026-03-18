@@ -12,7 +12,7 @@
     <!-- AmplitudeJS Library -->
     <script src="https://cdn.jsdelivr.net/npm/amplitudejs@5.3.2/dist/amplitude.min.js"></script>
     <link rel="stylesheet" href="jukebox.css?v=41.0">
-    <link rel="manifest" href="manifest.json?v=42">
+    <link rel="manifest" href="manifest.json?v=43">
     <meta name="theme-color" content="#141920">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -33,7 +33,7 @@
     <div id="flat-black-player">
         <div id="playlist-bar-toggle" onclick="togglePlaylistView()"
             style="cursor:pointer; background:#141920; height:45px; display:flex; align-items:center; justify-content:center; position:relative; z-index:10001;">
-            <span id="playlist-status-text">SHOW TRACK LIST</span>
+            <span id="playlist-status-text">SHOW DJ CHART</span>
             <svg id="playlist-arrow" width="16" height="16" viewBox="0 0 24 24" fill="white"
                 style="transition:0.3s; margin-left:10px;">
                 <path d="M7 10l5 5 5-5z"></path>
@@ -146,7 +146,7 @@
 
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./sw.js?vv=42', { scope: './jukebox.html' })
+                navigator.serviceWorker.register('./sw.js?vv=43', { scope: './jukebox.html' })
                     .then(reg => console.log('Service Worker registered with scope:', reg.scope))
                     .catch(err => console.error('Service Worker registration failed', err));
             });
