@@ -13,7 +13,7 @@ let isPrefetching = false;
 let isShuffleOn = false;
 let isRepeatOn = false;
 let playGeneration = 0; // 世代管理：古い再生予約をキャンセルするため
-const APP_VERSION = "v41.0"; // プロダクション用バージョン
+const APP_VERSION = "v44.0"; // プロダクション用バージョン
 let currentPlaylistDate = ""; // v23: 現在のリストの日付
 let currentIsIncomplete = false; // v25: 現在のリストが未完成か
 const REFLECTION_TIME_DAYS = 15; // v35: 15日間
@@ -548,7 +548,7 @@ async function findTracksFolder(yearId, yearName) {
                         if (isFavoritesFile || (cached && cached.isIncomplete)) {
                             const oldChartJson = (cached && cached.chart) ? JSON.stringify(cached.chart.slice(0, 10)) : "";
                             const newChartJson = JSON.stringify((d.chart || []).slice(0, 10));
-                            const changed = (!isNew && oldChartJson !== newChartJson);
+                            const changed = (oldChartJson !== "" && oldChartJson !== newChartJson);
                             const withinReflection = (cached && cached.updatedAt && (now - cached.updatedAt) < REFLECTION_TIME_MS);
                             if (changed || withinReflection) {
                                 isUpdated = true;
@@ -556,7 +556,7 @@ async function findTracksFolder(yearId, yearName) {
                         }
 
                         // updatedAt は内容が変わった時だけ更新する
-                        let updatedAt = (cached && cached.updatedAt) ? cached.updatedAt : now;
+                        let updatedAt = (cached && cached.updatedAt) ? cached.updatedAt : 0;
                         if (isUpdated && (!cached || (cached.chart && JSON.stringify(cached.chart) !== JSON.stringify(d.chart)))) {
                             updatedAt = now;
                         }
