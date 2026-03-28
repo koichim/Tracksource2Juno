@@ -572,7 +572,8 @@ async function findTracksFolder(yearId, yearName) {
     for (const tf of res.result.files) {
         const jRes = await gapi.client.drive.files.list({
             q: `'${tf.id}' in parents and mimeType = 'application/json' and trashed = false`,
-            fields: 'files(id, name)'
+            fields: 'files(id, name)',
+            pageSize: 1000
         });
 
         // プレイリストファイルを読み込んで、中身のメタデータで表示名を更新する
