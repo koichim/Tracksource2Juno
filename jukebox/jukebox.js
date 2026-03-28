@@ -55,6 +55,9 @@ const MetadataQueue = {
  * ファイル名から暫定的な表示ラベルを生成するフォールバック
  */
 function getFallbackLabel(filename, yearName) {
+    if (/^\d{4}\s+favorites\.json$/i.test(filename)) {
+        return `Koichi Masuda's ${filename.replace(/\.json$/i, "")}`;
+    }
     // パターン: YYYY-MM-DD_Artist_Title CHART.json
     const match = filename.match(/^(\d{4}-\d{2}-\d{2})_(.*?)_(.*?) CHART\.json$/i);
     if (match) {
@@ -717,7 +720,11 @@ async function findTracksFolder(yearId, yearName) {
                         const aliases = { "micky more & andy tee": ["mm & at"], "dave lee zr": ["dave lee"], "dave lee": ["dave lee zr"] };
                         let isDuplicate = titleL.startsWith(artistL) || (aliases[artistL] && aliases[artistL].some(a => titleL.startsWith(a.toLowerCase())));
 
-                        if (isDuplicate) {
+                        const isKoichiFav = artist === "Koichi Masuda" && titleL.includes("favorites");
+
+                        if (isKoichiFav) {
+                            label = `${artist}'s ${title}`;
+                        } else if (isDuplicate) {
                             label = `${d.date} ${title}`;
                         } else {
                             label = `${d.date} ${artist}'s ${title}`;
