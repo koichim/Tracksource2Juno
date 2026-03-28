@@ -150,6 +150,25 @@ body {
     aspect-ratio: 1 / 1;
     object-fit: cover;
     display: block;
+    /* v54: 読み込み中やエラー時に不快なアイコンを出さないための対策 */
+    background-color: #111;
+}
+
+/* 読み込み待ちや、srcが空、あるいはエラーで壊れた時に隠す設定 */
+.album-art:not([src]), 
+.album-art[src=""],
+.album-art[src*="R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"] {
+    visibility: hidden;
+}
+
+/* エラー時に壊れたアイコンを見せないための標準的な手法 */
+.album-art:-moz-broken,
+.album-art:before {
+    content: "";
+    display: block;
+    width: 100%;
+    height: 100%;
+    background-color: #111;
 }
 
 /* メタ情報（曲名・アーティスト）の余白を再調整 */
