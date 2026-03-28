@@ -13,7 +13,7 @@ let isPrefetching = false;
 let isShuffleOn = false;
 let isRepeatOn = false;
 let playGeneration = 0; // 世代管理：古い再生予約をキャンセルするため
-const APP_VERSION = "v49.0"; // プロダクション用バージョン
+const APP_VERSION = "v51"; // プロダクション用バージョン
 let currentPlaylistDate = ""; // v23: 現在のリストの日付
 let currentIsIncomplete = false; // v25: 現在のリストが未完成か
 const REFLECTION_TIME_DAYS = 15; // v35: 15日間
@@ -48,6 +48,10 @@ const MetadataQueue = {
             const task = this.pending.shift();
             task();
         }
+    },
+    clear() {
+        this.pending = [];
+        console.log("MetadataQueue cleared.");
     }
 };
 
@@ -100,28 +104,66 @@ function formatPlaylistLabel(baseLabel, isNew, isUpdated, isIncomplete) {
 // v19: IndexedDB によるキャッシュ管理
 const JukeboxDB = {
     dbName: 'jukebox_cache_db',
-    dbVersion: 1,
+    dbVersion: 3, // v50.1: fileIds に updatedAt インデックス追加のため 3 に
     db: null,
     async open() {
         if (this.db) return this.db;
         return new Promise((resolve, reject) => {
+            console.log("Opening IndexedDB (v" + this.dbVersion + ")...");
             const request = indexedDB.open(this.dbName, this.dbVersion);
+            
             request.onupgradeneeded = (e) => {
                 const db = e.target.result;
+                console.log("IndexedDB Upgrade Needed. Current version: " + e.oldVersion);
+                
                 if (!db.objectStoreNames.contains('playlists')) {
                     db.createObjectStore('playlists', { keyPath: 'fileId' });
                 }
+                
+                // v50: ファイル名 -> Google Drive ID のマッピング用ストア
+                if (!db.objectStoreNames.contains('fileIds')) {
+                    const store = db.createObjectStore('fileIds', { keyPath: 'name' });
+                    store.createIndex('updatedAt', 'updatedAt', { unique: false });
+                } else {
+                    // 既存ストアにインデックスを追加する場合 (v2 -> v3)
+                    const transaction = e.target.transaction;
+                    const store = transaction.objectStore('fileIds');
+                    if (!store.indexNames.contains('updatedAt')) {
+                        store.createIndex('updatedAt', 'updatedAt', { unique: false });
+                    }
+                }
             };
-            // v19: 既存DBがある場合のマイグレーション（objectStoreがない場合）
-            request.onerror = () => reject("IndexedDB open error");
+            
+            request.onerror = (e) => {
+                console.error("IndexedDB Open Error:", e);
+                reject("IndexedDB open error");
+            };
+            
             request.onsuccess = (e) => {
                 this.db = e.target.result;
-                // 万が一Upgradeが走らなかった場合のために手動チェック
-                if (!this.db.objectStoreNames.contains('playlists')) {
+                // ストアとインデックスの最終チェック
+                const hasStore = this.db.objectStoreNames.contains('fileIds');
+                const hasIndex = hasStore && this.db.transaction(['fileIds'], 'readonly').objectStore('fileIds').indexNames.contains('updatedAt');
+                
+                if (!hasStore || !hasIndex) {
+                    console.warn("DB schema incomplete (Store: " + hasStore + ", Index: " + hasIndex + "). Forcing upgrade...");
+                    const nextVer = Math.max(this.db.version + 1, 3);
                     this.db.close();
-                    const req2 = indexedDB.open(this.dbName, ++this.dbVersion);
-                    req2.onupgradeneeded = (ev) => ev.target.result.createObjectStore('playlists', { keyPath: 'fileId' });
+                    this.db = null;
+                    const req2 = indexedDB.open(this.dbName, nextVer);
+                    req2.onupgradeneeded = (ev) => {
+                        const db2 = ev.target.result;
+                        if (!db2.objectStoreNames.contains('playlists')) db2.createObjectStore('playlists', { keyPath: 'fileId' });
+                        if (!db2.objectStoreNames.contains('fileIds')) {
+                            const s = db2.createObjectStore('fileIds', { keyPath: 'name' });
+                            s.createIndex('updatedAt', 'updatedAt', { unique: false });
+                        } else {
+                            const s = ev.target.transaction.objectStore('fileIds');
+                            if (!s.indexNames.contains('updatedAt')) s.createIndex('updatedAt', 'updatedAt', { unique: false });
+                        }
+                    };
                     req2.onsuccess = (ev) => { this.db = ev.target.result; resolve(this.db); };
+                    req2.onerror = () => reject("IndexedDB retry failed");
                 } else {
                     resolve(this.db);
                 }
@@ -129,38 +171,94 @@ const JukeboxDB = {
         });
     },
     async get(fileId) {
-        const db = await this.open();
-        return new Promise((resolve) => {
-            const transaction = db.transaction(['playlists'], 'readonly');
-            const request = transaction.objectStore('playlists').get(fileId);
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => resolve(null);
-        });
+        try {
+            const db = await this.open();
+            return new Promise((resolve) => {
+                const transaction = db.transaction(['playlists'], 'readonly');
+                const request = transaction.objectStore('playlists').get(fileId);
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => resolve(null);
+            });
+        } catch(e) { return null; }
     },
     async set(fileId, data) {
-        const db = await this.open();
-        const existing = await this.get(fileId);
-        const createdAt = (existing && existing.createdAt !== undefined) ? existing.createdAt : Date.now();
-        return new Promise((resolve) => {
-            const transaction = db.transaction(['playlists'], 'readwrite');
-            const request = transaction.objectStore('playlists').put({
-                fileId,
-                ...data,
-                createdAt,
-                updatedAt: (data.updatedAt !== undefined ? data.updatedAt : (existing && existing.updatedAt !== undefined ? existing.updatedAt : Date.now()))
+        try {
+            const db = await this.open();
+            const existing = await this.get(fileId);
+            const createdAt = (existing && existing.createdAt !== undefined) ? existing.createdAt : Date.now();
+            return new Promise((resolve) => {
+                const transaction = db.transaction(['playlists'], 'readwrite');
+                const request = transaction.objectStore('playlists').put({
+                    fileId,
+                    ...data,
+                    createdAt,
+                    updatedAt: (data.updatedAt !== undefined ? data.updatedAt : (existing && existing.updatedAt !== undefined ? existing.updatedAt : Date.now()))
+                });
+                request.onsuccess = () => resolve();
+                request.onerror = () => resolve();
             });
-            request.onsuccess = () => resolve();
-            request.onerror = () => resolve();
-        });
+        } catch(e) { /* ignore */ }
+    },
+    // v50: ファイル名からIDを取得
+    async getFileId(name) {
+        try {
+            const db = await this.open();
+            return new Promise((resolve) => {
+                const transaction = db.transaction(['fileIds'], 'readonly');
+                const request = transaction.objectStore('fileIds').get(name);
+                request.onsuccess = () => resolve(request.result ? request.result.id : null);
+                request.onerror = () => resolve(null);
+            });
+        } catch(e) { return null; }
+    },
+    // v50: ファイル名からIDを保存 (2000件を超えたら古いものを削除)
+    async setFileId(name, id) {
+        try {
+            const db = await this.open();
+            // 1. まず保存
+            const putRequest = new Promise((resolve) => {
+                const transaction = db.transaction(['fileIds'], 'readwrite');
+                const request = transaction.objectStore('fileIds').put({ name, id, updatedAt: Date.now() });
+                request.onsuccess = () => resolve();
+                request.onerror = () => resolve();
+            });
+            await putRequest;
+
+            // 2. 件数チェックと整理 (Pruning)
+            const transaction = db.transaction(['fileIds'], 'readwrite');
+            const store = transaction.objectStore('fileIds');
+            const countRequest = store.count();
+            
+            countRequest.onsuccess = () => {
+                if (countRequest.result > 2000) {
+                    console.log("Pruning fileId cache (count: " + countRequest.result + ")");
+                    // 古い方から100件削除
+                    const index = store.index('updatedAt');
+                    const cursorRequest = index.openCursor(); // 昇順（古い順）
+                    let deletedCount = 0;
+                    cursorRequest.onsuccess = (e) => {
+                        const cursor = e.target.result;
+                        if (cursor && deletedCount < 100) {
+                            cursor.delete();
+                            deletedCount++;
+                            cursor.continue();
+                        }
+                    };
+                }
+            };
+        } catch(e) { /* ignore */ }
     },
     async clearAll() {
-        const db = await this.open();
-        return new Promise((resolve) => {
-            const transaction = db.transaction(['playlists'], 'readwrite');
-            const request = transaction.objectStore('playlists').clear();
-            request.onsuccess = () => resolve();
-            request.onerror = () => resolve();
-        });
+        try {
+            const db = await this.open();
+            return new Promise((resolve) => {
+                const transaction = db.transaction(['playlists', 'fileIds'], 'readwrite');
+                transaction.objectStore('playlists').clear();
+                transaction.objectStore('fileIds').clear();
+                transaction.oncomplete = () => resolve();
+                transaction.onerror = () => resolve();
+            });
+        } catch(e) { /* ignore */ }
     }
 };
 
@@ -719,53 +817,50 @@ async function findTracksFolder(yearId, yearName) {
             }
 
             // 非同期で最新情報を取得
-            console.log("Adding to MetadataQueue:", file.name);
             MetadataQueue.add(async () => {
                 const timeout = (ms) => new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), ms));
                 try {
-                    console.log("Starting background metadata fetch:", file.name);
+                    // console.log("Starting background metadata fetch:", file.name);
                     
-                    // v47: より安定した gapi.client.request を使用し、15秒でタイムアウトとする
+                    // v50: タイムアウトを10秒に短縮（バックグラウンドなので早めに諦める）
                     const fetchPromise = gapi.client.request({
                         path: `https://www.googleapis.com/drive/v3/files/${file.id}`,
                         params: { alt: 'media' }
                     });
                     
-                    const jData = await Promise.race([fetchPromise, timeout(15000)]);
-                    console.log("Received metadata response for:", file.name);
+                    let jData;
+                    try {
+                        jData = await Promise.race([fetchPromise, timeout(10000)]);
+                    } catch (e) {
+                        console.warn("Background fetch timeout or error for:", file.name);
+                        return; // Skip this one
+                    }
+                    
+                    // console.log("Received metadata response for:", file.name);
                     
                     let d = jData.result;
-                    console.log("Debug [Data type]:", typeof d, "for", file.name);
                     if (typeof d === 'string') {
-                        try { d = JSON.parse(d); } catch(e) { console.error("JSON Parse Error:", e); }
+                        try { d = JSON.parse(d); } catch(e) { console.error("JSON Parse Error:", e); return; }
                     }
 
                     if (d && d.chart) {
-                        console.log("Debug [Labeling start]:", file.name);
-                        
-                        // v47: JSONにdateがない場合のフォールバック（ファイル名から抽出）
+                        // ... (ラベル生成とDB保存のロジックは変更なし)
+                        // v50: ここは元から複雑なので一部省略して全体を維持
                         const playlistDate = d.date || (file.name.match(/^\d{4}-\d{2}-\d{2}/) || [""])[0];
                         const artist = String(d.chart_artist || "Unknown Artist").trim();
                         const title = String(d.chart_title || "Unknown Title").trim();
+                        const isIncomplete = d.chart && d.chart.slice(0, 10).some(t => !t || !t.mp3_file || t.mp3_file.trim() === "");
 
-                        const isIncomplete = d.chart && d.chart.slice(0, 10).some(t => !t.mp3_file || t.mp3_file.trim() === "");
-
-                        console.log("Debug [DB Saving]:", file.name);
                         let label = "";
                         const artistL = artist.toLowerCase();
                         const titleL = title.toLowerCase();
                         const aliases = { "micky more & andy tee": ["mm & at"], "dave lee zr": ["dave lee"], "dave lee": ["dave lee zr"] };
                         let isDuplicate = titleL.startsWith(artistL) || (aliases[artistL] && aliases[artistL].some(a => titleL.startsWith(a.toLowerCase())));
-
                         const isKoichiFav = artistL.includes("koichi masuda") && titleL.includes("favorites");
 
-                        if (isKoichiFav) {
-                            label = `${artist}'s ${title}`;
-                        } else if (isDuplicate) {
-                            label = `${playlistDate} ${title}`;
-                        } else {
-                            label = `${playlistDate} ${artist}'s ${title}`;
-                        }
+                        if (isKoichiFav) label = `${artist}'s ${title}`;
+                        else if (isDuplicate) label = `${playlistDate} ${title}`;
+                        else label = `${playlistDate} ${artist}'s ${title}`;
 
                         const now = Date.now();
                         const createdAt = (cached && cached.createdAt) ? cached.createdAt : now;
@@ -776,20 +871,15 @@ async function findTracksFolder(yearId, yearName) {
                         if (isFavoritesFile || (cached && cached.isIncomplete)) {
                             const oldChartSlice = (cached && cached.chart) ? JSON.stringify(cached.chart.slice(0, 10)) : null;
                             const newChartSlice = JSON.stringify((d.chart || []).slice(0, 10));
-                            const changed = (oldChartSlice !== null && oldChartSlice !== newChartSlice);
-                            const withinReflection = (cached && cached.updatedAt && (now - cached.updatedAt) < REFLECTION_TIME_MS);
-                            if (changed || withinReflection) {
+                            if (oldChartSlice !== null && oldChartSlice !== newChartSlice || (cached && (now - cached.updatedAt) < REFLECTION_TIME_MS)) {
                                 isUpdated = true;
                             }
                         }
 
                         let updatedAt = (cached && cached.updatedAt) ? cached.updatedAt : 0;
-                        if (isUpdated && (!cached || (cached.chart && JSON.stringify(cached.chart) !== JSON.stringify(d.chart)))) {
-                            updatedAt = now;
-                        }
+                        if (isUpdated && (!cached || (cached.chart && JSON.stringify(cached.chart) !== JSON.stringify(d.chart)))) updatedAt = now;
 
                         const displayLabel = formatPlaylistLabel(label, isNew, isUpdated, isIncomplete);
-
                         if (opt.innerText !== displayLabel) {
                             opt.innerText = displayLabel;
                             updateCustomItemLabel(opt.value, displayLabel);
@@ -798,15 +888,13 @@ async function findTracksFolder(yearId, yearName) {
                         const cacheData = { label, playlistDate, isIncomplete, updatedAt, metaOnly: !isFavoritesFile && !isIncomplete };
                         if (isFavoritesFile || isIncomplete) cacheData.chart = d.chart;
                         
-                        // v47: DB保存にタイムアウト追加
                         await Promise.race([JukeboxDB.set(file.id, cacheData), timeout(5000)]);
-                        console.log("Debug [DB Saved]:", file.name);
-                        console.log("Completed background metadata fetch:", displayLabel);
+                        // console.log("Completed background metadata fetch:", displayLabel);
                     }
                 } catch (err) {
                     console.error("Error background renaming for:", file.name, err);
                 } finally {
-                    console.log("Background task finished (released queue):", file.name);
+                    // console.log("Background task finished (released queue):", file.name);
                 }
             });
         }
@@ -860,7 +948,7 @@ selector.onchange = async (e) => {
         const newChart = res.result.chart || [];
         const newDate = res.result.date || "";
         // v25: 1-10曲目に未完成があるか
-        const newIsIncomplete = newChart.slice(0, 10).some(t => !t.mp3_file || t.mp3_file.trim() === "");
+        const newIsIncomplete = newChart.slice(0, 10).some(t => !t || !t.mp3_file || t.mp3_file.trim() === "");
 
         const oldJson = JSON.stringify(currentPlaylist);
         const newJson = JSON.stringify(newChart);
@@ -876,9 +964,9 @@ selector.onchange = async (e) => {
             
             if (!currentIsNewPlaylist && labelText.startsWith("🆙") && currentPlaylist.length > 0) {
                 // 既存のMP3ファイル名のセットを作成
-                const oldMp3s = new Set(currentPlaylist.map(t => t.mp3_file ? t.mp3_file.split('/').pop() : "").filter(f => f));
+                const oldMp3s = new Set(currentPlaylist.map(t => (t && t.mp3_file) ? t.mp3_file.split('/').pop() : "").filter(f => f));
                 newChart.forEach(t => {
-                    if (t.mp3_file) {
+                    if (t && t.mp3_file) {
                         const bname = t.mp3_file.split('/').pop();
                         if (bname && !oldMp3s.has(bname)) {
                             currentNewMp3s.add(bname);
@@ -1031,7 +1119,7 @@ async function prefetchNextTrack(currentIndex) {
         if (isShuffleOn && currentPlaylist.length > 0) {
             const validIndices = [];
             currentPlaylist.forEach((t, i) => {
-                if (t.mp3_file && t.mp3_file.trim() !== "") {
+                if (t && t.mp3_file && t.mp3_file.trim() !== "") {
                     validIndices.push(i);
                 }
             });
@@ -1076,15 +1164,23 @@ async function prefetchNextTrack(currentIndex) {
         const fileName = track.mp3_file.split('/').pop();
         console.log(`Prefetching start: ${track.title} (${fileName})`);
 
-        // 2. Google Drive からファイルIDを特定
-        const fRes = await gapi.client.drive.files.list({
-            q: `name = '${fileName.replace(/'/g, "\\'")}' and trashed = false`,
-            fields: 'files(id)', pageSize: 1
-        });
+        // v50: まずキャッシュを確認
+        let targetId = await JukeboxDB.getFileId(fileName);
+        
+        if (!targetId) {
+            // 2. キャッシュになければ Google Drive からファイルIDを特定
+            const fRes = await gapi.client.drive.files.list({
+                q: `name = '${fileName.replace(/'/g, "\\'")}' and trashed = false`,
+                fields: 'files(id)', pageSize: 1
+            });
 
-        if (fRes.result.files && fRes.result.files.length > 0) {
-            const targetId = fRes.result.files[0].id;
+            if (fRes.result.files && fRes.result.files.length > 0) {
+                targetId = fRes.result.files[0].id;
+                await JukeboxDB.setFileId(fileName, targetId);
+            }
+        }
 
+        if (targetId) {
             // 3. バイナリデータを取得（バックグラウンド）
             const response = await gapi.client.drive.files.get({ fileId: targetId, alt: 'media' });
 
@@ -1144,7 +1240,7 @@ function playNextTrack() {
         // ... (以下、先読みがない場合のフォールバックロジック)
         const validIndices = [];
         currentPlaylist.forEach((t, i) => {
-            if (t.mp3_file && t.mp3_file.trim() !== "") {
+            if (t && t.mp3_file && t.mp3_file.trim() !== "") {
                 validIndices.push(i);
             }
         });
@@ -1253,18 +1349,63 @@ async function playWithAmplitude(index) {
 
         // --- 3. 先読みがない場合、通常通りダウンロード ---
         const fileName = track.mp3_file.split('/').pop();
-        updateStatus(`Searching: ${fileName}`);
+        
+        // v50: まずキャッシュを確認
+        let targetId = await JukeboxDB.getFileId(fileName);
+        
+        if (!targetId) {
+            updateStatus(`Searching: ${fileName}`);
+            
+            // v50: タイムアウト付きの検索 (10秒)
+            const searchDrive = async () => {
+                const fRes = await gapi.client.drive.files.list({
+                    q: `name = '${fileName.replace(/'/g, "\\'")}' and trashed = false`,
+                    fields: 'files(id)', pageSize: 1
+                });
+                return (fRes.result.files && fRes.result.files.length > 0) ? fRes.result.files[0].id : null;
+            };
 
-        const fRes = await gapi.client.drive.files.list({
-            q: `name = '${fileName.replace(/'/g, "\\'")}' and trashed = false`,
-            fields: 'files(id)', pageSize: 1
-        });
+            const timeout = (ms) => new Promise((_, reject) => setTimeout(() => reject(new Error("Search Timeout")), ms));
+            
+            try {
+                targetId = await Promise.race([searchDrive(), timeout(10000)]);
+                if (targetId) {
+                    await JukeboxDB.setFileId(fileName, targetId);
+                }
+            } catch (err) {
+                console.error("Search failed or timed out:", err);
+                updateStatus("Search Timeout. Retrying...");
+                // 1回だけリトライ
+                await new Promise(r => setTimeout(r, 2000));
+                try {
+                    targetId = await Promise.race([searchDrive(), timeout(15000)]);
+                    if (targetId) await JukeboxDB.setFileId(fileName, targetId);
+                } catch(e2) {
+                    console.error("Retry failed:", e2);
+                }
+            }
+        }
 
-        if (fRes.result.files && fRes.result.files.length > 0) {
-            const targetId = fRes.result.files[0].id;
+        if (targetId) {
             updateStatus('Downloading...');
-
-            const response = await gapi.client.drive.files.get({ fileId: targetId, alt: 'media' });
+            
+            const fetchFile = async () => {
+                const response = await gapi.client.drive.files.get({ fileId: targetId, alt: 'media' });
+                return response;
+            };
+            
+            const downloadTimeout = (ms) => new Promise((_, reject) => setTimeout(() => reject(new Error("Download Timeout")), ms));
+            
+            let response;
+            try {
+                // v50: ダウンロードにもタイムアウト (30秒)
+                response = await Promise.race([fetchFile(), downloadTimeout(30000)]);
+            } catch (err) {
+                console.error("Download failed or timed out:", err);
+                updateStatus("Download Timeout");
+                isLoadingTrack = false;
+                return;
+            }
 
             // バイナリ変換処理
             const str = response.body;
@@ -1304,6 +1445,8 @@ async function playWithAmplitude(index) {
             // ファイルが見つからなかった場合は次の曲へ
             updateStatus(`Not Found: ${fileName}`);
             isLoadingTrack = false;
+            // 短い待ち時間を置いてから次へ（無限ループ防止）
+            await new Promise(r => setTimeout(r, 1000));
             playNextTrack();
         }
     } catch (e) {

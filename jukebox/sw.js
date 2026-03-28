@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jukebox-v48';
+const CACHE_NAME = 'jukebox-v51';
 const ASSETS_TO_CACHE = [
   './jukebox.html',
   './jukebox.css',
