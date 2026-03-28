@@ -13,7 +13,7 @@ let isPrefetching = false;
 let isShuffleOn = false;
 let isRepeatOn = false;
 let playGeneration = 0; // 世代管理：古い再生予約をキャンセルするため
-const APP_VERSION = "v52"; // プロダクション用バージョン
+const APP_VERSION = "v53"; // プロダクション用バージョン
 let currentPlaylistDate = ""; // v23: 現在のリストの日付
 let currentIsIncomplete = false; // v25: 現在のリストが未完成か
 const REFLECTION_TIME_DAYS = 15; // v35: 15日間
@@ -770,6 +770,12 @@ function setupCustomSelectorEvents() {
     document.addEventListener('click', (e) => {
         if (customSelectContainer && !customSelectContainer.contains(e.target)) {
             customPlaylistList.style.display = 'none';
+
+            // v53: リストを閉じた際、現在選択中のチャート名に戻す
+            const selectedOpt = selector.options[selector.selectedIndex];
+            if (selectedOpt && selectedOpt.value !== "") {
+                playlistSearch.value = selectedOpt.innerText;
+            }
         }
     });
 
@@ -777,6 +783,13 @@ function setupCustomSelectorEvents() {
     playlistSearch.onkeydown = (e) => {
         if (e.key === 'Escape') {
             customPlaylistList.style.display = 'none';
+            
+            // v53: キャンセル時、現在選択中のチャート名に戻す
+            const selectedOpt = selector.options[selector.selectedIndex];
+            if (selectedOpt && selectedOpt.value !== "") {
+                playlistSearch.value = selectedOpt.innerText;
+            }
+
             playlistSearch.blur();
         }
     };
