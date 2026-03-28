@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Traxsource2Juno
-// @version      0.57
+// @version      0.58
 // @namespace    Traxsource2Juno
 // @match      https://www.traxsource.com/*
 // @match      https://www.junodownload.com/*
@@ -628,7 +628,7 @@
 
     if (location.hostname.match(/traxsource.com$/i)){
         // hack reload... why "Bad Gateway" causes?
-        if ($('h1:first') && $('h1:first').html() == "502 Bad Gateway") {
+        if ($('h1:first') && $('h1:first').text().match(/Bad Gateway/i)) {
             location.href = location.href;
         };
     }
