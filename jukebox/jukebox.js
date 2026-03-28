@@ -13,7 +13,7 @@ let isPrefetching = false;
 let isShuffleOn = false;
 let isRepeatOn = false;
 let playGeneration = 0; // 世代管理：古い再生予約をキャンセルするため
-const APP_VERSION = "v44.0"; // プロダクション用バージョン
+const APP_VERSION = "v46.0"; // プロダクション用バージョン
 let currentPlaylistDate = ""; // v23: 現在のリストの日付
 let currentIsIncomplete = false; // v25: 現在のリストが未完成か
 const REFLECTION_TIME_DAYS = 15; // v35: 15日間
@@ -323,7 +323,7 @@ function updateStatus(msg) {
 
 // 1. 初期化
 async function initApp() {
-    updateStatus("Initializing Libraries...");
+    updateStatus("Loading Program...");
 
     // jsmediatags の読み込み待機
     let retry = 0;
@@ -334,10 +334,16 @@ async function initApp() {
     }
 
     if (window.jsmediatags) {
-        updateStatus("Libraries Ready");
+        updateStatus("Loading Program...");
     } else {
         updateStatus("Error: jsmediatags not found");
         return;
+    }
+
+    // v46: 初期状態をJS側でも強制（HTMLのキャッシュ対策）
+    if (playlistSearch) {
+        playlistSearch.disabled = true;
+        playlistSearch.placeholder = "Loading DJ charts...";
     }
 
     if (typeof Amplitude !== 'undefined') {
@@ -365,11 +371,17 @@ async function initApp() {
     }
 
     try {
+        updateStatus("Loading Google API...");
         await new Promise(r => gapi.load('client', r));
+        updateStatus("Initializing Google Client...");
         await gapi.client.init({});
+        updateStatus("Accessing Google Drive API...");
         await gapi.client.load('https://www.googleapis.com/discovery/v1/apis/drive/v3/rest');
         gapiInited = true;
-    } catch (e) { console.error("GAPI Error", e); }
+    } catch (e) { 
+        console.error("GAPI Error", e); 
+        updateStatus("Google API Error");
+    }
 
     tokenClient = google.accounts.oauth2.initTokenClient({
         client_id: CLIENT_ID, scope: SCOPES,
@@ -383,8 +395,8 @@ async function initApp() {
                     expires_at: expiresAt
                 }));
 
-                authBtn.style.display = 'none';
-                if (customSelectContainer) customSelectContainer.style.display = 'block';
+                authBtn.innerText = "Loading DJ charts...";
+                authBtn.disabled = true;
                 await startDiscovery();
             }
         }
@@ -399,8 +411,8 @@ async function initApp() {
         if (tokenData.access_token && tokenData.expires_at > now + 300000) {
             console.log("Using stored token");
             gapi.client.setToken({ access_token: tokenData.access_token });
-            authBtn.style.display = 'none';
-            if (customSelectContainer) customSelectContainer.style.display = 'block';
+            authBtn.innerText = "Loading DJ charts...";
+            authBtn.disabled = true;
             await startDiscovery();
         }
     }
@@ -477,6 +489,7 @@ authBtn.onclick = () => tokenClient.requestAccessToken({ prompt: '' });
 
 // 2. フォルダスキャン
 async function startDiscovery() {
+    updateStatus("Listing up DJ charts...");
     const res = await gapi.client.drive.files.list({
         q: "name = 'music_backup' and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
         fields: 'files(id)'
@@ -510,9 +523,15 @@ async function findYearFolders(parentId) {
     selector.append(...allFavs, ...allRegs);
     updateStatus("DJ Charts Loaded.");
     
-    // v45: カスタムセレクターを更新
+    // v46: カスタムセレクターを更新 & 有効化
     renderCustomPlaylistList();
     setupCustomSelectorEvents();
+    if (playlistSearch) {
+        playlistSearch.disabled = false;
+        playlistSearch.placeholder = "Search DJ Chart...";
+    }
+    if (authBtn) authBtn.style.display = 'none';
+    if (customSelectContainer) customSelectContainer.style.display = 'block';
 }
 
 /**
