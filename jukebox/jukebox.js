@@ -580,10 +580,13 @@ function renderCustomPlaylistList() {
  */
 function setupCustomSelectorEvents() {
     if (!playlistSearch || !customPlaylistList) return;
+    
+    let lastSearchQuery = "";
 
     // 入力時のフィルタリング
-    playlistSearch.oninput = (e) => {
-        const query = e.target.value.toLowerCase();
+        playlistSearch.oninput = (e) => {
+        lastSearchQuery = e.target.value;
+        const query = lastSearchQuery.toLowerCase();
         const items = customPlaylistList.querySelectorAll('.custom-playlist-item');
         let hasVisible = false;
         
@@ -604,8 +607,12 @@ function setupCustomSelectorEvents() {
     playlistSearch.onfocus = () => {
         if (customPlaylistList.innerHTML !== '') {
             customPlaylistList.style.display = 'block';
+            
+            // v48: 前回の検索ワードを復元（選んだリスト名で埋まるのを防ぐ）
+            playlistSearch.value = lastSearchQuery;
+            
             // 入力中ならフィルタリング、空なら全表示
-            const query = playlistSearch.value.toLowerCase();
+            const query = lastSearchQuery.toLowerCase();
             const items = customPlaylistList.querySelectorAll('.custom-playlist-item');
             items.forEach(item => {
                 const text = item.innerText.toLowerCase();
