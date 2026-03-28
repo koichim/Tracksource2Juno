@@ -21,6 +21,61 @@ const REFLECTION_TIME_MS = REFLECTION_TIME_DAYS * 24 * 60 * 60 * 1000;
 let currentIsNewPlaylist = false; // v42: 現在のプレイリストが「新着」か
 let currentNewMp3s = new Set();    // v42: 🆙プレイリスト内で新しく追加された曲のセット
 
+// --- メタデータ取得キュー (並列制限用) ---
+const MetadataQueue = {
+    pending: [],
+    running: 0,
+    maxConcurrent: 5,
+    add(task) {
+        return new Promise((resolve, reject) => {
+            this.pending.push(async () => {
+                try {
+                    const res = await task();
+                    resolve(res);
+                } catch (e) {
+                    reject(e);
+                } finally {
+                    this.running--;
+                    this.next();
+                }
+            });
+            this.next();
+        });
+    },
+    next() {
+        while (this.running < this.maxConcurrent && this.pending.length > 0) {
+            this.running++;
+            const task = this.pending.shift();
+            task();
+        }
+    }
+};
+
+/**
+ * ファイル名から暫定的な表示ラベルを生成するフォールバック
+ */
+function getFallbackLabel(filename, yearName) {
+    // パターン: YYYY-MM-DD_Artist_Title CHART.json
+    const match = filename.match(/^(\d{4}-\d{2}-\d{2})_(.*?)_(.*?) CHART\.json$/i);
+    if (match) {
+        const date = match[1];
+        const artist = match[2];
+        const title = match[3];
+        const artistL = artist.toLowerCase();
+        const titleL = title.toLowerCase();
+        const aliases = { "micky more & andy tee": ["mm & at"], "dave lee zr": ["dave lee"], "dave lee": ["dave lee zr"] };
+        const isDuplicate = titleL.startsWith(artistL) || (aliases[artistL] && aliases[artistL].some(a => titleL.startsWith(a.toLowerCase())));
+        
+        if (isDuplicate) {
+            return `${date} ${title}`;
+        } else {
+            return `${date} ${artist}'s ${title}`;
+        }
+    }
+    // 標準的なフォールバック
+    return `[${yearName}] ${filename.replace(/\.json$/i, "")}`;
+}
+
 /**
  * プレイリストの表示用ラベルを生成する（アイコン付与）
  */
@@ -616,12 +671,13 @@ async function findTracksFolder(yearId, yearName) {
                      continue;
                 }
             } else {
-                opt.innerText = `[${yearName}] Loading... ${file.name}`;
+                const fallbackLabel = getFallbackLabel(file.name, yearName);
+                opt.innerText = fallbackLabel;
                 isFavoritesFile ? results.favs.push(opt) : results.regs.push(opt);
             }
 
             // 非同期で最新情報を取得
-            (async () => {
+            MetadataQueue.add(async () => {
                 try {
                     const jData = await gapi.client.drive.files.get({ fileId: file.id, alt: 'media' });
                     let d = jData.result;
@@ -630,8 +686,8 @@ async function findTracksFolder(yearId, yearName) {
                     }
 
                     if (d && d.date && d.chart_artist && d.chart_title) {
-                        const artist = d.chart_artist.trim();
-                        const title = d.chart_title.trim();
+                        const artist = String(d.chart_artist).trim();
+                        const title = String(d.chart_title).trim();
 
                         // v25: 未完成判定 (1-10曲目にファイルがない)
                         const isIncomplete = d.chart && d.chart.slice(0, 10).some(t => !t.mp3_file || t.mp3_file.trim() === "");
@@ -687,7 +743,7 @@ async function findTracksFolder(yearId, yearName) {
                 } catch (err) {
                     console.error("Error background renaming:", err);
                 }
-            })();
+            });
         }
     }
     return results;
