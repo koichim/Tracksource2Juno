@@ -140,14 +140,14 @@ const JukeboxDB = {
     async set(fileId, data) {
         const db = await this.open();
         const existing = await this.get(fileId);
-        const createdAt = (existing && existing.createdAt) ? existing.createdAt : Date.now();
+        const createdAt = (existing && existing.createdAt !== undefined) ? existing.createdAt : Date.now();
         return new Promise((resolve) => {
             const transaction = db.transaction(['playlists'], 'readwrite');
             const request = transaction.objectStore('playlists').put({
                 fileId,
                 ...data,
                 createdAt,
-                updatedAt: (data.updatedAt || Date.now())
+                updatedAt: (data.updatedAt !== undefined ? data.updatedAt : (existing && existing.updatedAt !== undefined ? existing.updatedAt : Date.now()))
             });
             request.onsuccess = () => resolve();
             request.onerror = () => resolve();
@@ -774,9 +774,9 @@ async function findTracksFolder(yearId, yearName) {
 
                         let isUpdated = false;
                         if (isFavoritesFile || (cached && cached.isIncomplete)) {
-                            const oldChartJson = (cached && cached.chart) ? JSON.stringify(cached.chart.slice(0, 10)) : "";
-                            const newChartJson = JSON.stringify((d.chart || []).slice(0, 10));
-                            const changed = (oldChartJson !== "" && oldChartJson !== newChartJson);
+                            const oldChartSlice = (cached && cached.chart) ? JSON.stringify(cached.chart.slice(0, 10)) : null;
+                            const newChartSlice = JSON.stringify((d.chart || []).slice(0, 10));
+                            const changed = (oldChartSlice !== null && oldChartSlice !== newChartSlice);
                             const withinReflection = (cached && cached.updatedAt && (now - cached.updatedAt) < REFLECTION_TIME_MS);
                             if (changed || withinReflection) {
                                 isUpdated = true;
@@ -795,8 +795,8 @@ async function findTracksFolder(yearId, yearName) {
                             updateCustomItemLabel(opt.value, displayLabel);
                         }
 
-                        const cacheData = { label, playlistDate, isIncomplete, updatedAt, metaOnly: !isFavoritesFile };
-                        if (isFavoritesFile) cacheData.chart = d.chart;
+                        const cacheData = { label, playlistDate, isIncomplete, updatedAt, metaOnly: !isFavoritesFile && !isIncomplete };
+                        if (isFavoritesFile || isIncomplete) cacheData.chart = d.chart;
                         
                         // v47: DB保存にタイムアウト追加
                         await Promise.race([JukeboxDB.set(file.id, cacheData), timeout(5000)]);
@@ -909,7 +909,7 @@ selector.onchange = async (e) => {
         // v29: 絵文字を確実に除去してから保存
         label = label.replace(/^[🆕🆙\s]+/, "")
             .replace(/[\s🚧👷]+$/, "");
-        await JukeboxDB.set(fileId, { label, chart: newChart, playlistDate: newDate, isIncomplete: newIsIncomplete, metaOnly: false });
+        await JukeboxDB.set(fileId, { label, chart: newChart, playlistDate: newDate, isIncomplete: newIsIncomplete, metaOnly: false, updatedAt: (cached ? (cached.updatedAt || 0) : 0) });
 
     } catch (err) {
         console.error("Error background loading DJ Chart:", err);
