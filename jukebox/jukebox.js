@@ -216,6 +216,9 @@ window.addEventListener('focus', syncUI);
 
 const authBtn = document.getElementById('auth_btn');
 const selector = document.getElementById('playlist_selector');
+const customSelectContainer = document.getElementById('custom_select_container');
+const playlistSearch = document.getElementById('playlist_search');
+const customPlaylistList = document.getElementById('custom_playlist_list');
 const trackList = document.getElementById('track_list');
 
 // v17: ボタンのクリックを直接制御 (ライブラリの自動制御を無効化するため)
@@ -326,7 +329,7 @@ async function initApp() {
                 }));
 
                 authBtn.style.display = 'none';
-                selector.style.display = 'block';
+                if (customSelectContainer) customSelectContainer.style.display = 'block';
                 await startDiscovery();
             }
         }
@@ -342,7 +345,7 @@ async function initApp() {
             console.log("Using stored token");
             gapi.client.setToken({ access_token: tokenData.access_token });
             authBtn.style.display = 'none';
-            selector.style.display = 'block';
+            if (customSelectContainer) customSelectContainer.style.display = 'block';
             await startDiscovery();
         }
     }
@@ -451,6 +454,110 @@ async function findYearFolders(parentId) {
 
     selector.append(...allFavs, ...allRegs);
     updateStatus("DJ Charts Loaded.");
+    
+    // v45: カスタムセレクターを更新
+    renderCustomPlaylistList();
+    setupCustomSelectorEvents();
+}
+
+/**
+ * カスタムプレリストリストを描画する
+ */
+function renderCustomPlaylistList() {
+    if (!customPlaylistList) return;
+    customPlaylistList.innerHTML = '';
+    
+    const options = Array.from(selector.options).filter(opt => opt.value !== "");
+    options.forEach(opt => {
+        const item = document.createElement('div');
+        item.className = 'custom-playlist-item';
+        item.innerText = opt.innerText;
+        item.dataset.value = opt.value;
+        
+        // 元のセレクトボックスの選択状態を反映
+        if (selector.value === opt.value) {
+            item.classList.add('selected');
+        }
+        
+        item.onclick = (e) => {
+            e.stopPropagation();
+            selector.value = opt.value;
+            // dispatch change event to trigger selector.onchange
+            selector.dispatchEvent(new Event('change'));
+            
+            // UI更新
+            document.querySelectorAll('.custom-playlist-item').forEach(i => i.classList.remove('selected'));
+            item.classList.add('selected');
+            playlistSearch.value = opt.innerText; // 選択した名前を表示
+            customPlaylistList.style.display = 'none';
+        };
+        customPlaylistList.appendChild(item);
+    });
+}
+
+/**
+ * カスタムセレクターのイベントを設定する
+ */
+function setupCustomSelectorEvents() {
+    if (!playlistSearch || !customPlaylistList) return;
+
+    // 入力時のフィルタリング
+    playlistSearch.oninput = (e) => {
+        const query = e.target.value.toLowerCase();
+        const items = customPlaylistList.querySelectorAll('.custom-playlist-item');
+        let hasVisible = false;
+        
+        items.forEach(item => {
+            const text = item.innerText.toLowerCase();
+            if (text.includes(query)) {
+                item.style.display = 'block';
+                hasVisible = true;
+            } else {
+                item.style.display = 'none';
+            }
+        });
+        
+        customPlaylistList.style.display = hasVisible ? 'block' : 'none';
+    };
+
+    // フォーカス時にリストを表示
+    playlistSearch.onfocus = () => {
+        if (customPlaylistList.innerHTML !== '') {
+            customPlaylistList.style.display = 'block';
+            // 入力中ならフィルタリング、空なら全表示
+            const query = playlistSearch.value.toLowerCase();
+            const items = customPlaylistList.querySelectorAll('.custom-playlist-item');
+            items.forEach(item => {
+                const text = item.innerText.toLowerCase();
+                item.style.display = text.includes(query) ? 'block' : 'none';
+            });
+        }
+    };
+
+    // 外側をクリックした時に閉じる
+    document.addEventListener('click', (e) => {
+        if (customSelectContainer && !customSelectContainer.contains(e.target)) {
+            customPlaylistList.style.display = 'none';
+        }
+    });
+
+    // キーボードナビゲーション（任意だが、使い勝手のために追加）
+    playlistSearch.onkeydown = (e) => {
+        if (e.key === 'Escape') {
+            customPlaylistList.style.display = 'none';
+            playlistSearch.blur();
+        }
+    };
+}
+
+function updateCustomItemLabel(value, label) {
+    if (!customPlaylistList) return;
+    const items = customPlaylistList.querySelectorAll('.custom-playlist-item');
+    items.forEach(item => {
+        if (item.dataset.value === value) {
+            item.innerText = label;
+        }
+    });
 }
 
 async function findTracksFolder(yearId, yearName) {
@@ -498,6 +605,7 @@ async function findTracksFolder(yearId, yearName) {
                 let displayLabel = formatPlaylistLabel(cached.label, isNew, isUpdated, cached.isIncomplete);
                 
                 opt.innerText = displayLabel;
+                updateCustomItemLabel(opt.value, displayLabel);
                 isFavoritesFile ? results.favs.push(opt) : results.regs.push(opt);
 
                 // v35: フォルダ年が現在の年より古い場合のみスキップする（2025年分が2026年になっても消えないように）
@@ -566,6 +674,7 @@ async function findTracksFolder(yearId, yearName) {
 
                         if (opt.innerText !== displayLabel) {
                             opt.innerText = displayLabel;
+                            updateCustomItemLabel(opt.value, displayLabel);
                         }
 
                         // メタデータキャッシュ保存
@@ -588,6 +697,12 @@ selector.onchange = async (e) => {
     if (!e.target.value) return;
 
     updateStatus("Loading DJ Chart...");
+
+    // v45: 検索ボックスの表示を選択した名前に更新
+    if (playlistSearch) {
+        const selectedOpt = selector.options[selector.selectedIndex];
+        if (selectedOpt) playlistSearch.value = selectedOpt.innerText;
+    }
 
     // v21: 新しいプレイリスト選択時は一旦止める
     if (typeof Amplitude !== 'undefined') Amplitude.pause();

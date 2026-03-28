@@ -361,6 +361,7 @@ progress.amplitude-song-played-progress::-webkit-progress-value { background: #5
 /* 白いつまみがあるスライダー */
 input[type="range"].amplitude-song-slider {
     -webkit-appearance: none;
+    appearance: none;
     width: 100%;
     height: 20px; /* 親の .bar-wrapper と高さを合わせる */
     margin: 0;
@@ -409,5 +410,104 @@ input[type="range"].amplitude-song-slider::-webkit-slider-thumb {
 #track_list::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
 
 /* 9. Setup Area (認証ボタン等) */
-.setup-area { width: 100%; max-width: 450px; padding: 10px 10px 0 10px; box-sizing: border-box; }
-select, button#auth_btn { width: 100%; padding: 10px; background: #222; color: #fff; border: 1px solid #444; border-radius: 4px; margin-bottom: 2px; }
+.setup-area { 
+    width: 100%; 
+    max-width: 450px; 
+    padding: 15px 15px 5px 15px; 
+    box-sizing: border-box; 
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+button#auth_btn { 
+    width: 100%; 
+    padding: 12px; 
+    background: #222; 
+    color: #fff; 
+    border: 1px solid #444; 
+    border-radius: 8px; 
+    cursor: pointer;
+    font-weight: bold;
+    transition: background 0.3s;
+}
+
+button#auth_btn:hover {
+    background: #333;
+}
+
+/* 10. カスタム検索可能セレクター */
+.custom-select-container {
+    width: 100%;
+    position: relative;
+}
+
+.playlist-search-input {
+    width: 100%;
+    padding: 12px 15px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    color: #fff;
+    font-size: 14px;
+    outline: none;
+    transition: all 0.3s ease;
+    backdrop-filter: blur(10px);
+    box-sizing: border-box;
+}
+
+.playlist-search-input:focus {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: #55b560;
+    box-shadow: 0 0 15px rgba(85, 181, 96, 0.2);
+}
+
+.custom-playlist-list {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    width: 100%;
+    max-height: 400px;
+    background: #1a232c;
+    border: 1px solid rgba(85, 181, 96, 0.3);
+    border-radius: 8px;
+    overflow-y: auto;
+    display: none; 
+    box-shadow: 0 15px 40px rgba(0, 0, 0, 0.6);
+    z-index: 20001;
+    backdrop-filter: blur(20px);
+}
+
+.custom-playlist-item {
+    padding: 12px 15px;
+    cursor: pointer;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    font-size: 13px;
+    color: #ccc;
+    transition: all 0.2s ease;
+    line-height: 1.4;
+}
+
+.custom-playlist-item:last-child {
+    border-bottom: none;
+}
+
+.custom-playlist-item:hover {
+    background: rgba(85, 181, 96, 0.15);
+    color: #fff;
+}
+
+.custom-playlist-item.selected {
+    border-left: 4px solid #55b560;
+    background: rgba(85, 181, 96, 0.2);
+    color: #55b560;
+    font-weight: 600;
+}
+
+/* スクロールバーのカスタマイズ (リスト内) */
+.custom-playlist-list::-webkit-scrollbar { width: 5px; }
+.custom-playlist-list::-webkit-scrollbar-track { background: transparent; }
+.custom-playlist-list::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
+
+/* 元のセレクトボックスを隠す */
+#playlist_selector { display: none !important; }
