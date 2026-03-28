@@ -25,7 +25,7 @@ let currentNewMp3s = new Set();    // v42: 🆙プレイリスト内で新しく
 const MetadataQueue = {
     pending: [],
     running: 0,
-    maxConcurrent: 5,
+    maxConcurrent: 1, // v47: データベースのロックを避けるため並列数を1に制限
     add(task) {
         return new Promise((resolve, reject) => {
             this.pending.push(async () => {
@@ -149,6 +149,7 @@ const JukeboxDB = {
                 createdAt,
                 updatedAt: (data.updatedAt || Date.now())
             });
+            request.onsuccess = () => resolve();
             request.onerror = () => resolve();
         });
     },
@@ -508,7 +509,9 @@ async function findYearFolders(parentId) {
         fields: 'files(id, name)'
     });
     selector.innerHTML = '<option value="">Select DJ Chart...</option>';
-    const yearFolders = res.result.files.filter(f => f.name.match(/^\d{4}$/) && parseInt(f.name) >= 2023);
+    const yearFolders = res.result.files
+        .filter(f => f.name.match(/^\d{4}$/) && parseInt(f.name) >= 2023)
+        .sort((a, b) => b.name.localeCompare(a.name));
     
     let allFavs = [];
     let allRegs = [];
@@ -652,6 +655,9 @@ async function findTracksFolder(yearId, yearName) {
             fields: 'files(id, name)',
             pageSize: 1000
         });
+        
+        // v47: 最新のファイルから先に MetadataQueue に追加されるようソート
+        jRes.result.files.sort((a, b) => b.name.localeCompare(a.name));
 
         // プレイリストファイルを読み込んで、中身のメタデータで表示名を更新する
         const optionsToAdd = [];
@@ -686,11 +692,18 @@ async function findTracksFolder(yearId, yearName) {
                 updateCustomItemLabel(opt.value, displayLabel);
                 isFavoritesFile ? results.favs.push(opt) : results.regs.push(opt);
 
-                // v35: フォルダ年が現在の年より古い場合のみスキップする（2025年分が2026年になっても消えないように）
+                // v47: 最適化 - favorites/不完全なリスト以外で、すでに名前があれば背景読み込みをスキップ
+                const isUpdatedCheckNeeded = isFavoritesFile || cached.isIncomplete;
+                if (!isUpdatedCheckNeeded) {
+                    // 通常のチャートは一度名前が決まれば再取得不要
+                    console.log("Using cached label (skipping update):", cached.label);
+                    continue;
+                }
+                
                 const folderYear = parseInt(yearName);
                 const currentYear = new Date().getFullYear();
                 if (folderYear < currentYear - 1) {
-                     continue;
+                    continue;
                 }
             } else {
                 const fallbackLabel = getFallbackLabel(file.name, yearName);
@@ -699,35 +712,52 @@ async function findTracksFolder(yearId, yearName) {
             }
 
             // 非同期で最新情報を取得
+            console.log("Adding to MetadataQueue:", file.name);
             MetadataQueue.add(async () => {
+                const timeout = (ms) => new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), ms));
                 try {
-                    const jData = await gapi.client.drive.files.get({ fileId: file.id, alt: 'media' });
+                    console.log("Starting background metadata fetch:", file.name);
+                    
+                    // v47: より安定した gapi.client.request を使用し、15秒でタイムアウトとする
+                    const fetchPromise = gapi.client.request({
+                        path: `https://www.googleapis.com/drive/v3/files/${file.id}`,
+                        params: { alt: 'media' }
+                    });
+                    
+                    const jData = await Promise.race([fetchPromise, timeout(15000)]);
+                    console.log("Received metadata response for:", file.name);
+                    
                     let d = jData.result;
+                    console.log("Debug [Data type]:", typeof d, "for", file.name);
                     if (typeof d === 'string') {
-                        try { d = JSON.parse(d); } catch(e) { }
+                        try { d = JSON.parse(d); } catch(e) { console.error("JSON Parse Error:", e); }
                     }
 
-                    if (d && d.date && d.chart_artist && d.chart_title) {
-                        const artist = String(d.chart_artist).trim();
-                        const title = String(d.chart_title).trim();
+                    if (d && d.chart) {
+                        console.log("Debug [Labeling start]:", file.name);
+                        
+                        // v47: JSONにdateがない場合のフォールバック（ファイル名から抽出）
+                        const playlistDate = d.date || (file.name.match(/^\d{4}-\d{2}-\d{2}/) || [""])[0];
+                        const artist = String(d.chart_artist || "Unknown Artist").trim();
+                        const title = String(d.chart_title || "Unknown Title").trim();
 
-                        // v25: 未完成判定 (1-10曲目にファイルがない)
                         const isIncomplete = d.chart && d.chart.slice(0, 10).some(t => !t.mp3_file || t.mp3_file.trim() === "");
 
+                        console.log("Debug [DB Saving]:", file.name);
                         let label = "";
                         const artistL = artist.toLowerCase();
                         const titleL = title.toLowerCase();
                         const aliases = { "micky more & andy tee": ["mm & at"], "dave lee zr": ["dave lee"], "dave lee": ["dave lee zr"] };
                         let isDuplicate = titleL.startsWith(artistL) || (aliases[artistL] && aliases[artistL].some(a => titleL.startsWith(a.toLowerCase())));
 
-                        const isKoichiFav = artist === "Koichi Masuda" && titleL.includes("favorites");
+                        const isKoichiFav = artistL.includes("koichi masuda") && titleL.includes("favorites");
 
                         if (isKoichiFav) {
                             label = `${artist}'s ${title}`;
                         } else if (isDuplicate) {
-                            label = `${d.date} ${title}`;
+                            label = `${playlistDate} ${title}`;
                         } else {
-                            label = `${d.date} ${artist}'s ${title}`;
+                            label = `${playlistDate} ${artist}'s ${title}`;
                         }
 
                         const now = Date.now();
@@ -746,13 +776,11 @@ async function findTracksFolder(yearId, yearName) {
                             }
                         }
 
-                        // updatedAt は内容が変わった時だけ更新する
                         let updatedAt = (cached && cached.updatedAt) ? cached.updatedAt : 0;
                         if (isUpdated && (!cached || (cached.chart && JSON.stringify(cached.chart) !== JSON.stringify(d.chart)))) {
                             updatedAt = now;
                         }
 
-                        // v25: 絵文字付きラベル
                         const displayLabel = formatPlaylistLabel(label, isNew, isUpdated, isIncomplete);
 
                         if (opt.innerText !== displayLabel) {
@@ -760,14 +788,18 @@ async function findTracksFolder(yearId, yearName) {
                             updateCustomItemLabel(opt.value, displayLabel);
                         }
 
-                        // メタデータキャッシュ保存
-                        // Favoritesの場合はchartも保存する
-                        const cacheData = { label, playlistDate: d.date, isIncomplete, updatedAt, metaOnly: !isFavoritesFile };
+                        const cacheData = { label, playlistDate, isIncomplete, updatedAt, metaOnly: !isFavoritesFile };
                         if (isFavoritesFile) cacheData.chart = d.chart;
-                        await JukeboxDB.set(file.id, cacheData);
+                        
+                        // v47: DB保存にタイムアウト追加
+                        await Promise.race([JukeboxDB.set(file.id, cacheData), timeout(5000)]);
+                        console.log("Debug [DB Saved]:", file.name);
+                        console.log("Completed background metadata fetch:", displayLabel);
                     }
                 } catch (err) {
-                    console.error("Error background renaming:", err);
+                    console.error("Error background renaming for:", file.name, err);
+                } finally {
+                    console.log("Background task finished (released queue):", file.name);
                 }
             });
         }
