@@ -13,7 +13,7 @@ let isPrefetching = false;
 let isShuffleOn = false;
 let isRepeatOn = false;
 let playGeneration = 0; // 世代管理：古い再生予約をキャンセルするため
-const APP_VERSION = "v56"; // プロダクション用バージョン
+const APP_VERSION = "v57"; // プロダクション用バージョン
 let currentPlaylistDate = ""; // v23: 現在のリストの日付
 let currentIsIncomplete = false; // v25: 現在のリストが未完成か
 const REFLECTION_TIME_DAYS = 15; // v35: 15日間
@@ -397,7 +397,7 @@ const syncUI = () => {
                 navigator.mediaSession.playbackState = targetState;
             }
         }
-        const version = "v56";
+        const version = "v57";
         const appVersionEl = document.getElementById('app-version');
         if (appVersionEl) appVersionEl.innerText = version;
     } catch (err) {

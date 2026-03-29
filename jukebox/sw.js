@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jukebox-cache-v56';
+const CACHE_NAME = 'jukebox-cache-v57';
 const ASSETS_TO_CACHE = [
   './jukebox.html',
   './jukebox.css',
@@ -7,16 +7,25 @@ const ASSETS_TO_CACHE = [
   './icon-192x192.png',
   './icon-512x512.png',
   'https://cdn.jsdelivr.net/npm/amplitudejs@5.3.2/dist/amplitude.min.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js',
-  'https://apis.google.com/js/api.js',
-  'https://accounts.google.com/gsi/client'
+  'https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js'
 ];
 
 self.addEventListener('install', event => {
   self.skipWaiting(); // 新しいSWをすぐに待機状態からアクティブにする
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then(cache => cache.addAll(ASSETS_TO_CACHE))
+      .then(async cache => {
+        console.log('[SW] Pre-caching assets...');
+        // addAllは1つでも失敗すると全体が失敗するため、1つずつ個別にキャッシュを試みる（安全策）
+        const cachePromises = ASSETS_TO_CACHE.map(async (url) => {
+          try {
+            return await cache.add(url);
+          } catch (error) {
+            console.warn(`[SW] Failed to cache asset: ${url}`, error);
+          }
+        });
+        return Promise.all(cachePromises);
+      })
   );
 });
 
