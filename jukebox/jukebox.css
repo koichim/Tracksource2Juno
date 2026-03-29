@@ -256,30 +256,30 @@ body {
     position: relative;
 }
 
-/* ★ 右端の外側からスルスル現れる「絶対配置」マーキー */
+/* ★ 左端からスタートして半分までループする連続マーキー */
 .is-marquee {
     position: absolute !important;
     /* 親要素の右端の外に配置 */
     left: 0;
-    padding-left: 100%;
+    padding-left: 0;
     /* これで文字の先頭を親の右端にピタッと合わせる */
     width: auto !important;
     max-width: none !important;
     display: inline-block !important;
-    /* 開始(0%)から終了(100%)まで一定速度でループ */
+    /* 開始(0%)から終了(-50%)まで一定速度でループ */
     animation: marquee-fix 12s linear infinite;
 }
 
 @keyframes marquee-fix {
 
-    /* 0%: 文字の先頭が親の右端に隠れている状態 */
+    /* 0%: 左端 */
     0% {
         transform: translateX(0);
     }
 
-    /* 100%: 文字の最後尾が親の左端に消えるまで動かす */
+    /* 100%: ちょうど半分の距離（テキスト1つ分+Gap）進んでループ */
     100% {
-        transform: translateX(-100%);
+        transform: translateX(-50%);
     }
 }
 

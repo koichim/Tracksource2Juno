@@ -1196,11 +1196,24 @@ function updateMarquee() {
         const wrapper = el.parentElement;
         if (!wrapper) return;
 
+        if (el.dataset.originalText) {
+            el.innerText = el.dataset.originalText;
+        } else {
+            el.dataset.originalText = el.innerText;
+        }
+
         el.classList.remove('is-marquee');
+        el.style.animationDuration = ''; // reset
 
         setTimeout(() => {
             // 文字の幅が、表示窓(wrapper)の幅より大きいか判定
             if (el.scrollWidth > wrapper.offsetWidth) {
+                const gapText = '\u00A0\u00A0\u00A0\u00A0\u00A0';
+                el.innerText = el.dataset.originalText + gapText + el.dataset.originalText + gapText;
+                
+                // ピクセル数に応じてアニメーション速度を一定に保つ (約40px/秒)
+                const duration = (el.scrollWidth / 2) / 40;
+                el.style.animationDuration = Math.max(5, duration) + 's';
                 el.classList.add('is-marquee');
             }
         }, 100);
@@ -1224,16 +1237,23 @@ function updatePlaylistSearchMarquee() {
     if (document.activeElement === input || !input.value) {
         marquee.classList.remove('is-marquee');
         input.classList.remove('marquee-active');
+        marquee.style.animationDuration = '';
         return;
     }
 
     // 表示用テキストを設定
     marquee.innerText = input.value;
     marquee.classList.remove('is-marquee');
+    marquee.style.animationDuration = '';
 
     // テキストがウィンドウ幅を超えているか判定
     setTimeout(() => {
         if (marquee.scrollWidth > windowEl.offsetWidth) {
+            const gapText = '\u00A0\u00A0\u00A0\u00A0\u00A0';
+            marquee.innerText = input.value + gapText + input.value + gapText;
+            const duration = (marquee.scrollWidth / 2) / 40;
+            marquee.style.animationDuration = Math.max(5, duration) + "s";
+            
             marquee.classList.add('is-marquee');
             input.classList.add('marquee-active');
         } else {
@@ -1674,8 +1694,14 @@ function startPlayback(index, url, cover, gen) {
     // --- UI更新 ---
     const titleEl = document.getElementById('now-playing-title');
     const artistEl = document.getElementById('now-playing-artist');
-    if (titleEl) titleEl.innerText = fullTitle;
-    if (artistEl) artistEl.innerText = track.artist || "";
+    if (titleEl) {
+        titleEl.innerText = fullTitle;
+        delete titleEl.dataset.originalText;
+    }
+    if (artistEl) {
+        artistEl.innerText = track.artist || "";
+        delete artistEl.dataset.originalText;
+    }
 
     if (typeof updateMarquee === 'function') updateMarquee();
 
