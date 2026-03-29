@@ -720,6 +720,7 @@ function renderCustomPlaylistList() {
             document.querySelectorAll('.custom-playlist-item').forEach(i => i.classList.remove('selected'));
             item.classList.add('selected');
             playlistSearch.value = opt.innerText; // 選択した名前を表示
+            updatePlaylistSearchMarquee(); // v55: マーキー更新
             customPlaylistList.style.display = 'none';
         };
         customPlaylistList.appendChild(item);
@@ -778,6 +779,11 @@ function setupCustomSelectorEvents() {
                 item.style.display = text.includes(query) ? 'block' : 'none';
             });
         }
+        updatePlaylistSearchMarquee(); // v55
+    };
+
+    playlistSearch.onblur = () => {
+        updatePlaylistSearchMarquee(); // v55
     };
 
     // 外側をクリックした時に閉じる
@@ -790,6 +796,7 @@ function setupCustomSelectorEvents() {
             if (selectedOpt && selectedOpt.value !== "") {
                 playlistSearch.value = selectedOpt.innerText;
                 if (clearSearchBtn) clearSearchBtn.style.display = 'none';
+                updatePlaylistSearchMarquee(); // v55
             }
         }
     });
@@ -1201,6 +1208,38 @@ function updateMarquee() {
 
     checkMarquee('now-playing-title');
     checkMarquee('now-playing-artist');
+    updatePlaylistSearchMarquee(); // v55
+}
+
+/**
+ * playlist_search 入力フィールドのテキストが溢れている場合にマーキー効果を適用する
+ */
+function updatePlaylistSearchMarquee() {
+    const input = document.getElementById('playlist_search');
+    const marquee = document.getElementById('playlist_search_marquee');
+    const windowEl = document.querySelector('.playlist-search-marquee-window');
+    if (!input || !marquee || !windowEl) return;
+
+    // フォーカス中、または入力が空の場合はマーキーを停止して入力を表示
+    if (document.activeElement === input || !input.value) {
+        marquee.classList.remove('is-marquee');
+        input.classList.remove('marquee-active');
+        return;
+    }
+
+    // 表示用テキストを設定
+    marquee.innerText = input.value;
+    marquee.classList.remove('is-marquee');
+
+    // テキストがウィンドウ幅を超えているか判定
+    setTimeout(() => {
+        if (marquee.scrollWidth > windowEl.offsetWidth) {
+            marquee.classList.add('is-marquee');
+            input.classList.add('marquee-active');
+        } else {
+            input.classList.remove('marquee-active');
+        }
+    }, 50);
 }
 
 /**

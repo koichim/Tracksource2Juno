@@ -568,6 +568,41 @@ button#auth_btn:hover {
     box-shadow: 0 0 15px rgba(85, 181, 96, 0.2);
 }
 
+.playlist-search-input.marquee-active:not(:focus) {
+    color: transparent !important;
+}
+
+/* プレースホルダーも非表示にする（マーキー中） */
+.playlist-search-input.marquee-active:not(:focus)::placeholder {
+    color: transparent !important;
+}
+
+.playlist-search-marquee-window {
+    position: absolute;
+    top: 0;
+    left: 15px;
+    right: 35px;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    pointer-events: none;
+    overflow: hidden;
+    z-index: 5;
+}
+
+.playlist-search-marquee {
+    color: #fff;
+    font-size: 14px;
+    white-space: nowrap;
+    display: inline-block;
+    position: relative;
+    visibility: hidden;
+}
+
+.playlist-search-marquee.is-marquee {
+    visibility: visible !important;
+}
+
 .clear-search-btn {
     position: absolute;
     top: 50%;
