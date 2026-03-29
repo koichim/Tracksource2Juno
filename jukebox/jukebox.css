@@ -141,7 +141,16 @@ body {
 #track_list li.disabled {
     cursor: not-allowed;
     background-color: #1a1f26;
-    /* 少し暗くする */
+    opacity: 0.4;
+    pointer-events: none;
+}
+
+#track_list li.disabled b {
+    color: #888;
+}
+
+#track_list li.disabled small {
+    color: #666;
 }
 
 #track_list li.disabled:hover {

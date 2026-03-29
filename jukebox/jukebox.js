@@ -13,7 +13,7 @@ let isPrefetching = false;
 let isShuffleOn = false;
 let isRepeatOn = false;
 let playGeneration = 0; // 世代管理：古い再生予約をキャンセルするため
-const APP_VERSION = "v55"; // プロダクション用バージョン
+const APP_VERSION = "v56"; // プロダクション用バージョン
 let currentPlaylistDate = ""; // v23: 現在のリストの日付
 let currentIsIncomplete = false; // v25: 現在のリストが未完成か
 const REFLECTION_TIME_DAYS = 15; // v35: 15日間
@@ -397,9 +397,9 @@ const syncUI = () => {
                 navigator.mediaSession.playbackState = targetState;
             }
         }
-
-        const verEl = document.getElementById('app-version');
-        if (verEl && verEl.innerText !== APP_VERSION) verEl.innerText = APP_VERSION;
+        const version = "v56";
+        const appVersionEl = document.getElementById('app-version');
+        if (appVersionEl) appVersionEl.innerText = version;
     } catch (err) {
         console.error("syncUI Error:", err);
     }
@@ -562,8 +562,13 @@ async function initApp() {
         playNextTrack();
     };
     document.getElementById('custom-prev').onclick = () => {
-        const prev = Math.max(0, currentTrackIndex - 1);
-        playWithAmplitude(prev);
+        const prevIndex = findValidTrackIndex(currentTrackIndex - 1, -1);
+        if (prevIndex !== -1) {
+            playWithAmplitude(prevIndex);
+        } else {
+            // 最悪でも0番目を目指す（playWithAmplitude内でvalidチェックされる）
+            playWithAmplitude(0);
+        }
     };
 
     // シャッフルとリピートの状態（見た目）の切り替え
@@ -1142,7 +1147,7 @@ function renderList() {
         const newIconHtml = showNewIcon ? '<span style="color: #55b560; margin-right: 4px; font-size: 0.9em;">🆕</span>' : '';
 
         li.innerHTML = `
-            <div class="meta-container" style="${!hasFile ? 'opacity: 0.4;' : ''}">
+            <div class="meta-container">
                 <b>${newIconHtml}${track.num != null ? track.num + '. ' : ''}${fullTitle}</b><br>
                 <small>${track.artist}</small>
             </div>`;
@@ -1195,6 +1200,45 @@ function updateMarquee() {
 }
 
 /**
+ * 現在のインデックスから、指定された方向（+1 または -1）に
+ * 有効な曲（mp3_fileあり）を探す。見つからなければ -1 を返す。
+ */
+function findValidTrackIndex(startIndex, direction = 1) {
+    if (!currentPlaylist || currentPlaylist.length === 0) return -1;
+
+    let idx = startIndex;
+    let searchCount = 0;
+    const maxSearch = currentPlaylist.length;
+
+    while (searchCount < maxSearch) {
+        // インデックスの範囲外チェックとループ処理
+        if (idx >= currentPlaylist.length) {
+            if (isRepeatOn) {
+                idx = 0;
+            } else {
+                return -1;
+            }
+        } else if (idx < 0) {
+            if (isRepeatOn) {
+                idx = currentPlaylist.length - 1;
+            } else {
+                return -1;
+            }
+        }
+
+        const track = currentPlaylist[idx];
+        if (track && track.mp3_file && track.mp3_file.trim() !== "") {
+            return idx;
+        }
+
+        idx += direction;
+        searchCount++;
+    }
+
+    return -1;
+}
+
+/**
  * 現在の曲の次の「有効な曲」をバックグラウンドでダウンロードし、
  * Blob URL を変数に保持しておく。
  */
@@ -1219,27 +1263,8 @@ async function prefetchNextTrack(currentIndex) {
                 targetIndex = filtered[Math.floor(Math.random() * filtered.length)];
             }
         } else {
-            let idx = currentIndex + 1;
-            let searchCount = 0;
-            const maxSearch = currentPlaylist.length;
-
-            while (searchCount < maxSearch) {
-                if (idx >= currentPlaylist.length) {
-                    if (isRepeatOn) {
-                        idx = 0;
-                    } else {
-                        break;
-                    }
-                }
-
-                const track = currentPlaylist[idx];
-                if (track && track.mp3_file && track.mp3_file.trim() !== "") {
-                    targetIndex = idx;
-                    break;
-                }
-                idx++;
-                searchCount++;
-            }
+            // 次の有効なインデックスを探す
+            targetIndex = findValidTrackIndex(currentIndex + 1, 1);
         }
 
         // 2. 見つからなかった、または自分自身に戻ってきてしまった場合は終了
@@ -1381,38 +1406,18 @@ async function playWithAmplitude(index) {
     isLoadingTrack = true;
 
     try {
-        // --- 1. 次の「有効な曲」を探すループ ---
-        let searchCount = 0;
-        const maxSearch = currentPlaylist.length + 1;
+        // --- 1. 指定されたインデックスまたはそれ以降の「有効な曲」を探す ---
+        const validIndex = findValidTrackIndex(index, 1);
 
-        while (searchCount < maxSearch) {
-            // リストの最後まで到達した場合
-            if (index >= currentPlaylist.length) {
-                if (isRepeatOn && currentPlaylist.length > 0) {
-                    console.log(`[Gen ${thisGen}] End of list. Wrapping to start.`);
-                    index = 0;
-                } else {
-                    updateStatus("End of Playlist");
-                    isLoadingTrack = false;
-                    return;
-                }
-            }
-
-            const track = currentPlaylist[index];
-            if (track && track.mp3_file && track.mp3_file.trim() !== "") {
-                // 有効な曲が見つかった
-                break;
-            }
-
-            console.log(`[Gen ${thisGen}] Skipping index ${index} (No valid file).`);
-            index++;
-            searchCount++;
-        }
-
-        if (searchCount >= maxSearch) {
-            updateStatus("No playable tracks found");
+        if (validIndex === -1) {
+            updateStatus("End of Playlist");
             isLoadingTrack = false;
             return;
+        }
+
+        if (validIndex !== index) {
+            console.log(`[Gen ${thisGen}] Skipping to index ${validIndex} (No valid file at ${index}).`);
+            index = validIndex;
         }
 
         const track = currentPlaylist[index];
@@ -1612,8 +1617,13 @@ function startPlayback(index, url, cover, gen) {
             }
         });
         navigator.mediaSession.setActionHandler('previoustrack', () => {
-            const prev = Math.max(0, currentTrackIndex - 1);
-            playWithAmplitude(prev);
+            const prevIndex = findValidTrackIndex(currentTrackIndex - 1, -1);
+            if (prevIndex !== -1) {
+                playWithAmplitude(prevIndex);
+            } else {
+                // 有効な前曲がない場合は、リピートオフなら最初へ、オンなら最後へ（findValidで処理済み）
+                playWithAmplitude(0);
+            }
         });
         navigator.mediaSession.setActionHandler('nexttrack', () => { playNextTrack(); });
     }
