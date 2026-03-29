@@ -880,10 +880,8 @@ async function findTracksFolder(yearId, yearName) {
                 const isFavoritesFile = /favorites/i.test(file.name);
 
                 let isUpdated = false;
-                if (cached.isIncomplete || isFavoritesFile) {
-                    if ((now - updatedAt) < REFLECTION_TIME_MS) {
-                        isUpdated = true;
-                    }
+                if (updatedAt > 0 && (now - updatedAt) < REFLECTION_TIME_MS) {
+                    isUpdated = true;
                 }
 
                 let displayLabel = formatPlaylistLabel(cached.label, isNew, isUpdated, cached.isIncomplete);
@@ -973,16 +971,30 @@ async function findTracksFolder(yearId, yearName) {
                         const isNew = (now - createdAt) < REFLECTION_TIME_MS;
 
                         let isUpdated = false;
-                        if (isFavoritesFile || (cached && cached.isIncomplete)) {
-                            const oldChartSlice = (cached && cached.chart) ? JSON.stringify(cached.chart.slice(0, 10)) : null;
-                            const newChartSlice = JSON.stringify((d.chart || []).slice(0, 10));
-                            if (oldChartSlice !== null && oldChartSlice !== newChartSlice || (cached && (now - cached.updatedAt) < REFLECTION_TIME_MS)) {
-                                isUpdated = true;
+                        let updatedAt = (cached && cached.updatedAt) ? cached.updatedAt : 0;
+
+                        if (updatedAt > 0 && (now - updatedAt) < REFLECTION_TIME_MS) {
+                            isUpdated = true;
+                        }
+
+                        let newlyUpdated = false;
+                        if (cached) {
+                            if (cached.playlistDate !== d.playlistDate) newlyUpdated = true;
+                            if (cached.isIncomplete !== d.isIncomplete) newlyUpdated = true;
+
+                            if (!newlyUpdated && (isFavoritesFile || cached.isIncomplete)) {
+                                const oldChartSlice = cached.chart ? JSON.stringify(cached.chart.slice(0, 10)) : null;
+                                const newChartSlice = JSON.stringify((d.chart || []).slice(0, 10));
+                                if (oldChartSlice !== null && oldChartSlice !== newChartSlice) {
+                                    newlyUpdated = true;
+                                }
                             }
                         }
 
-                        let updatedAt = (cached && cached.updatedAt) ? cached.updatedAt : 0;
-                        if (isUpdated && (!cached || (cached.chart && JSON.stringify(cached.chart) !== JSON.stringify(d.chart)))) updatedAt = now;
+                        if (newlyUpdated) {
+                            isUpdated = true;
+                            updatedAt = now;
+                        }
 
                         const displayLabel = formatPlaylistLabel(label, isNew, isUpdated, isIncomplete);
                         if (opt.innerText !== displayLabel) {
@@ -990,8 +1002,21 @@ async function findTracksFolder(yearId, yearName) {
                             updateCustomItemLabel(opt.value, displayLabel);
                         }
 
-                        const cacheData = { label, playlistDate, isIncomplete, updatedAt, metaOnly: !isFavoritesFile && !isIncomplete };
-                        if (isFavoritesFile || isIncomplete) cacheData.chart = d.chart;
+                        // v58: 個々の曲の追加日時 (addedAt) を付与
+                        const nowMs = Date.now();
+                        const newChart = d.chart || [];
+                        newChart.forEach(t => {
+                            if (t && t.mp3_file) {
+                                const cachedTrack = (cached && cached.chart) ? cached.chart.find(ct => ct && ct.mp3_file === t.mp3_file) : null;
+                                t.addedAt = (cachedTrack && cachedTrack.addedAt) ? cachedTrack.addedAt : nowMs;
+                            }
+                        });
+
+                        const hasRecentAdditions = newChart.some(t => t && t.addedAt && (nowMs - t.addedAt) < REFLECTION_TIME_MS);
+                        const keepCache = isFavoritesFile || isIncomplete || hasRecentAdditions || (updatedAt > 0 && (nowMs - updatedAt) < REFLECTION_TIME_MS);
+
+                        const cacheData = { label, playlistDate, isIncomplete, updatedAt, metaOnly: !keepCache };
+                        if (keepCache) cacheData.chart = newChart;
 
                         await JukeboxDB.set(file.id, cacheData);
                         // console.log("Completed background metadata fetch:", displayLabel);
@@ -1080,6 +1105,15 @@ selector.onchange = async (e) => {
                 });
             }
 
+            // v58: ここでもバックグラウンドと同様に addedAt をマージする
+            const nowMs = Date.now();
+            newChart.forEach(t => {
+                if (t && t.mp3_file) {
+                    const cachedTrack = currentPlaylist.find(ct => ct && ct.mp3_file === t.mp3_file);
+                    t.addedAt = (cachedTrack && cachedTrack.addedAt) ? cachedTrack.addedAt : nowMs;
+                }
+            });
+
             currentPlaylist = newChart;
             currentPlaylistDate = newDate;
             currentIsIncomplete = newIsIncomplete;
@@ -1102,7 +1136,13 @@ selector.onchange = async (e) => {
         // v29: 絵文字を確実に除去してから保存
         label = label.replace(/^[🆕🆙\s]+/, "")
             .replace(/[\s🚧👷]+$/, "");
-        await JukeboxDB.set(fileId, { label, chart: newChart, playlistDate: newDate, isIncomplete: newIsIncomplete, metaOnly: false, updatedAt: (cached ? (cached.updatedAt || 0) : 0) });
+
+        const nowMs = Date.now();
+        const hasRecentAdditions = newChart.some(t => t && t.addedAt && (nowMs - t.addedAt) < REFLECTION_TIME_MS);
+        const uAt = cached ? (cached.updatedAt || 0) : 0;
+        const keepCache = isFavoritesFile || newIsIncomplete || hasRecentAdditions || ((nowMs - uAt) < REFLECTION_TIME_MS);
+
+        await JukeboxDB.set(fileId, { label, chart: newChart, playlistDate: newDate, isIncomplete: newIsIncomplete, metaOnly: !keepCache, updatedAt: uAt });
 
     } catch (err) {
         console.error("Error background loading DJ Chart:", err);
@@ -1143,12 +1183,16 @@ function renderList() {
             li.classList.add('disabled');
         }
 
-        // v42: Newアイコンの判定
+        // v42/v58: Newアイコンの判定 (addedAtを優先)
         let showNewIcon = false;
         if (hasFile) {
             if (currentIsNewPlaylist) {
                 showNewIcon = true;
+            } else if (track.addedAt && (Date.now() - track.addedAt) < REFLECTION_TIME_MS) {
+                // v58: キャッシュの追加日時が15日以内なら NEW
+                showNewIcon = true;
             } else {
+                // 後方互換性：addedAtがない場合でも直近の差分があれば NEW
                 const bname = track.mp3_file.split('/').pop();
                 if (bname && currentNewMp3s.has(bname)) {
                     showNewIcon = true;
