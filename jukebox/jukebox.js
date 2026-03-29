@@ -1254,7 +1254,7 @@ function updateMarquee() {
             if (el.scrollWidth > wrapper.offsetWidth) {
                 const gapText = '\u00A0\u00A0\u00A0\u00A0\u00A0';
                 el.innerText = el.dataset.originalText + gapText + el.dataset.originalText + gapText;
-                
+
                 // ピクセル数に応じてアニメーション速度を一定に保つ (約40px/秒)
                 const duration = (el.scrollWidth / 2) / 40;
                 el.style.animationDuration = Math.max(5, duration) + 's';
@@ -1297,7 +1297,7 @@ function updatePlaylistSearchMarquee() {
             marquee.innerText = input.value + gapText + input.value + gapText;
             const duration = (marquee.scrollWidth / 2) / 40;
             marquee.style.animationDuration = Math.max(5, duration) + "s";
-            
+
             marquee.classList.add('is-marquee');
             input.classList.add('marquee-active');
         } else {
