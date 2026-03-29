@@ -13,7 +13,7 @@ let isPrefetching = false;
 let isShuffleOn = false;
 let isRepeatOn = false;
 let playGeneration = 0; // 世代管理：古い再生予約をキャンセルするため
-const APP_VERSION = "v54"; // プロダクション用バージョン
+const APP_VERSION = "v55"; // プロダクション用バージョン
 let currentPlaylistDate = ""; // v23: 現在のリストの日付
 let currentIsIncomplete = false; // v25: 現在のリストが未完成か
 const REFLECTION_TIME_DAYS = 15; // v35: 15日間
@@ -414,6 +414,7 @@ const authBtn = document.getElementById('auth_btn');
 const selector = document.getElementById('playlist_selector');
 const customSelectContainer = document.getElementById('custom_select_container');
 const playlistSearch = document.getElementById('playlist_search');
+const clearSearchBtn = document.getElementById('clear_search_btn');
 const customPlaylistList = document.getElementById('custom_playlist_list');
 const trackList = document.getElementById('track_list');
 
@@ -735,6 +736,10 @@ function setupCustomSelectorEvents() {
         const items = customPlaylistList.querySelectorAll('.custom-playlist-item');
         let hasVisible = false;
         
+        if (clearSearchBtn) {
+            clearSearchBtn.style.display = lastSearchQuery.length > 0 ? 'block' : 'none';
+        }
+        
         items.forEach(item => {
             const text = item.innerText.toLowerCase();
             if (text.includes(query)) {
@@ -756,6 +761,10 @@ function setupCustomSelectorEvents() {
             // v48: 前回の検索ワードを復元（選んだリスト名で埋まるのを防ぐ）
             playlistSearch.value = lastSearchQuery;
             
+            if (clearSearchBtn) {
+                clearSearchBtn.style.display = lastSearchQuery.length > 0 ? 'block' : 'none';
+            }
+            
             // 入力中ならフィルタリング、空なら全表示
             const query = lastSearchQuery.toLowerCase();
             const items = customPlaylistList.querySelectorAll('.custom-playlist-item');
@@ -775,6 +784,7 @@ function setupCustomSelectorEvents() {
             const selectedOpt = selector.options[selector.selectedIndex];
             if (selectedOpt && selectedOpt.value !== "") {
                 playlistSearch.value = selectedOpt.innerText;
+                if (clearSearchBtn) clearSearchBtn.style.display = 'none';
             }
         }
     });
@@ -788,11 +798,24 @@ function setupCustomSelectorEvents() {
             const selectedOpt = selector.options[selector.selectedIndex];
             if (selectedOpt && selectedOpt.value !== "") {
                 playlistSearch.value = selectedOpt.innerText;
+                if (clearSearchBtn) clearSearchBtn.style.display = 'none';
             }
 
             playlistSearch.blur();
         }
     };
+
+    if (clearSearchBtn) {
+        clearSearchBtn.onclick = (e) => {
+            e.stopPropagation();
+            playlistSearch.value = '';
+            lastSearchQuery = '';
+            clearSearchBtn.style.display = 'none';
+            const items = customPlaylistList.querySelectorAll('.custom-playlist-item');
+            items.forEach(item => item.style.display = 'block');
+            playlistSearch.focus();
+        };
+    }
 }
 
 function updateCustomItemLabel(value, label) {
