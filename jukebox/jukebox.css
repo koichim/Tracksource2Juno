@@ -15,14 +15,18 @@ body {
 /* 2. プレイヤー外枠（この高さを基準にリストが広がります） */
 /* --- プレイヤー外枠 (スマホが標準) --- */
 #flat-black-player {
-    display: none; /* ★これを追加：初期状態では隠しておきます */
+    display: none;
+    /* ★これを追加：初期状態では隠しておきます */
     position: relative;
     background-color: #111;
-    width: 100%;        /* ★スマホでは横幅いっぱい */
-    min-height: 100vh;  /* ★スマホでは高さもいっぱい */
+    width: 100%;
+    /* ★スマホでは横幅いっぱい */
+    min-height: 100vh;
+    /* ★スマホでは高さもいっぱい */
     margin: 0;
     padding: 0;
-    border-radius: 0;   /* ★スマホでは角丸なし */
+    border-radius: 0;
+    /* ★スマホでは角丸なし */
     flex-direction: column;
     box-sizing: border-box;
 }
@@ -30,17 +34,22 @@ body {
 /* --- PC・タブレット用の設定 (画面幅が 500px 以上の時だけ適用) --- */
 @media (min-width: 500px) {
     #flat-black-player {
-        width: 450px;       /* PCでは固定幅 */
-        min-height: auto;   /* 高さは中身に合わせる */
-        margin: 10px auto 40px auto;  /* 上への余白を減らし、下には残して中央寄せ */
-        border-radius: 8px; /* 角丸を復活 */
+        width: 450px;
+        /* PCでは固定幅 */
+        min-height: auto;
+        /* 高さは中身に合わせる */
+        margin: 10px auto 40px auto;
+        /* 上への余白を減らし、下には残して中央寄せ */
+        border-radius: 8px;
+        /* 角丸を復活 */
         height: auto;
     }
 }
 
 /* --- 3. プレイリスト切り替えバー (最前面・固定) --- */
 #playlist-bar-toggle {
-    position: relative !important; /* 他のものと重ならないようにします */
+    position: relative !important;
+    /* 他のものと重ならないようにします */
     width: 100%;
     height: 48px;
     background-color: #141920;
@@ -57,18 +66,19 @@ body {
     display: none;
     position: absolute;
     /* 重要：バーの高さ(45px)と完全に一致させる */
-    top: 45px !important; 
+    top: 45px !important;
     left: 0;
     right: 0;
     bottom: 0;
     background-color: #141920;
-    z-index: 10000 !important; /* バーより背面に置く */
+    z-index: 10000 !important;
+    /* バーより背面に置く */
     margin: 0;
     padding: 0;
     list-style: none;
     overflow-y: auto;
     /* 重要：上にはみ出さないように描画範囲を制限 */
-    clip-path: inset(0 0 0 0); 
+    clip-path: inset(0 0 0 0);
 }
 
 /* 1曲目がバーに近すぎないように隙間を作る */
@@ -84,13 +94,21 @@ body {
     cursor: pointer;
     border-left: 4px solid transparent;
 }
-#track_list li b { color: #FFF; }
-#track_list li small { color: #999; }
+
+#track_list li b {
+    color: #FFF;
+}
+
+#track_list li small {
+    color: #999;
+}
 
 /* 再生中のハイライト */
 #track_list li.playing b {
-    color: #55b560 !important; /* 画像のような鮮やかな緑 */
+    color: #55b560 !important;
+    /* 画像のような鮮やかな緑 */
 }
+
 #track_list li.playing {
     border-left: 4px solid #55b560;
 }
@@ -101,7 +119,7 @@ body {
     text-transform: uppercase;
     letter-spacing: 1.5px;
     color: #FFF;
-    font-weight: bold;  
+    font-weight: bold;
 }
 
 #playlist-arrow {
@@ -115,16 +133,20 @@ body {
     display: block !important;
 }
 
-#track_list li:hover { background-color: #2a323a; }
+#track_list li:hover {
+    background-color: #2a323a;
+}
 
 /* ファイルがないトラックのスタイル */
 #track_list li.disabled {
     cursor: not-allowed;
-    background-color: #1a1f26; /* 少し暗くする */
+    background-color: #1a1f26;
+    /* 少し暗くする */
 }
 
 #track_list li.disabled:hover {
-    background-color: #1a1f26; /* ホバー効果を無効化 */
+    background-color: #1a1f26;
+    /* ホバー効果を無効化 */
 }
 
 
@@ -134,15 +156,18 @@ body {
     flex: 1;
     display: flex;
     flex-direction: column;
-    padding-top: 45px; /* バーの分だけ下げる */
+    padding-top: 45px;
+    /* バーの分だけ下げる */
 }
 
 /* --- 3. Album Art (横幅いっぱいに拡大 & 正方形維持) --- */
 .player-top {
     width: 100%;
     line-height: 0;
-    position: relative; /* 重なりを解消 */
+    position: relative;
+    /* 重なりを解消 */
 }
+
 /* --- カバーアートの端寄せ --- */
 .album-art {
     width: 100% !important;
@@ -155,7 +180,7 @@ body {
 }
 
 /* 読み込み待ちや、srcが空、あるいはエラーで壊れた時に隠す設定 */
-.album-art:not([src]), 
+.album-art:not([src]),
 .album-art[src=""],
 .album-art[src*="R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"] {
     visibility: hidden;
@@ -174,20 +199,24 @@ body {
 /* メタ情報（曲名・アーティスト）の余白を再調整 */
 .now-playing-meta-container {
     width: 100%;
-    padding: 10px 0; /* 高さを圧縮 */
+    padding: 10px 0;
+    /* 高さを圧縮 */
     background-color: #111;
     display: flex !important;
-    flex-direction: column !important; /* 縦並びを強制 */
+    flex-direction: column !important;
+    /* 縦並びを強制 */
     align-items: center;
-    gap: 8px; /* タイトルとアーティストの距離を縮小 */
+    gap: 8px;
+    /* タイトルとアーティストの距離を縮小 */
 }
 
 /* 曲名の「表示窓」 */
 .title-wrapper {
     width: 100%;
-    height: 40px; 
+    height: 40px;
     overflow: hidden;
-    position: relative; /* 子要素（title）の基準点になります */
+    position: relative;
+    /* 子要素（title）の基準点になります */
     background-color: #111;
     display: flex;
     align-items: center;
@@ -197,7 +226,8 @@ body {
 /* アーティスト名の「表示窓」 */
 .artist-wrapper {
     width: 100%;
-    height: 24px; /* 固定高を与えて、絶対配置になっても潰れないようにする */
+    height: 24px;
+    /* 固定高を与えて、絶対配置になっても潰れないようにする */
     overflow: hidden;
     position: relative;
     background-color: #111;
@@ -214,14 +244,16 @@ body {
     display: inline-block;
     line-height: 1.2;
     /* 通常時（短い時）は中央に配置 */
-    position: relative; 
+    position: relative;
 }
 
 /* ★ 右端の外側からスルスル現れる「絶対配置」マーキー */
 .is-marquee {
-    position: absolute !important; /* 親要素の右端の外に配置 */
+    position: absolute !important;
+    /* 親要素の右端の外に配置 */
     left: 0;
-    padding-left: 100%; /* これで文字の先頭を親の右端にピタッと合わせる */
+    padding-left: 100%;
+    /* これで文字の先頭を親の右端にピタッと合わせる */
     width: auto !important;
     max-width: none !important;
     display: inline-block !important;
@@ -230,10 +262,16 @@ body {
 }
 
 @keyframes marquee-fix {
+
     /* 0%: 文字の先頭が親の右端に隠れている状態 */
-    0% { transform: translateX(0); }
+    0% {
+        transform: translateX(0);
+    }
+
     /* 100%: 文字の最後尾が親の左端に消えるまで動かす */
-    100% { transform: translateX(-100%); }
+    100% {
+        transform: translateX(-100%);
+    }
 }
 
 .now-playing-artist {
@@ -242,27 +280,33 @@ body {
     white-space: nowrap;
     display: inline-block;
     position: relative;
-    z-index: 2; /* タイトルが重なっても下にくるように */
+    z-index: 2;
+    /* タイトルが重なっても下にくるように */
 }
+
 /* 6. コントローラー（太線・大型アイコンの黄金比） */
 /* --- 4. Controls (画像通りのサイズ・間隔・一直線整列) --- */
 
 .controls {
     display: flex;
-    justify-content: center; /* 横方向の中央寄せ */
-    align-items: center;     /* 縦方向の中央寄せ（これで高さが揃います） */
+    justify-content: center;
+    /* 横方向の中央寄せ */
+    align-items: center;
+    /* 縦方向の中央寄せ（これで高さが揃います） */
     width: 100%;
-    padding: 10px 0 15px 0; /* 下部の余白なども全体的に圧縮 */
+    padding: 10px 0 15px 0;
+    /* 下部の余白なども全体的に圧縮 */
     background-color: #111;
     /* アイコン同士の間隔を 30px に広げて、全体をゆったりさせる */
-    gap: 30px; 
+    gap: 30px;
 }
 
 /* 中央の大きな円 (直径52px・太線) */
 #play-pause {
     width: 52px !important;
     height: 52px !important;
-    border: 4px solid #FFF !important; /* 太線で強調 */
+    border: 4px solid #FFF !important;
+    /* 太線で強調 */
     border-radius: 50%;
     display: flex !important;
     align-items: center !important;
@@ -270,7 +314,8 @@ body {
     cursor: pointer;
     flex-shrink: 0;
     position: relative;
-    margin: 0 !important; /* gapで制御するためマージンは不要 */
+    margin: 0 !important;
+    /* gapで制御するためマージンは不要 */
 }
 
 /* 中央の再生・一時停止アイコン (30px: 円に対して一回り大きい比率) */
@@ -282,19 +327,22 @@ body {
 
 /* 再生アイコン（三角形）の中央補正 */
 .amplitude-play-pause .play-icon {
-    transform: translateX(3px); 
+    transform: translateX(3px);
 }
 
 /* 再生中のアイコン切り替えルール (v15: 属性 data-state で制御) */
 #play-pause[data-state="playing"] .play-icon {
     display: none !important;
 }
+
 #play-pause[data-state="playing"] .pause-icon {
     display: block !important;
 }
+
 #play-pause[data-state="paused"] .play-icon {
     display: block !important;
 }
+
 #play-pause[data-state="paused"] .pause-icon {
     display: none !important;
 }
@@ -304,12 +352,14 @@ body {
     border-left: 4px solid #55b560 !important;
     background-color: #2a323a !important;
 }
+
 #track_list li.playing b {
     color: #55b560 !important;
 }
 
 /* 前後ボタン (28px: 少し大きめに調整) */
-.amplitude-prev, .amplitude-next {
+.amplitude-prev,
+.amplitude-next {
     cursor: pointer;
     width: 28px !important;
     height: 28px !important;
@@ -317,24 +367,30 @@ body {
     align-items: center;
     justify-content: center;
 }
-.amplitude-prev svg, .amplitude-next svg {
+
+.amplitude-prev svg,
+.amplitude-next svg {
     width: 100% !important;
     height: 100% !important;
     fill: #FFF;
 }
 
 /* シャッフル・リピート (20px: 控えめなサイズ) */
-.amplitude-shuffle, .amplitude-repeat {
+.amplitude-shuffle,
+.amplitude-repeat {
     cursor: pointer;
     width: 20px !important;
     height: 20px !important;
     display: flex;
     align-items: center;
 }
-.amplitude-shuffle svg, .amplitude-repeat svg {
+
+.amplitude-shuffle svg,
+.amplitude-repeat svg {
     width: 100% !important;
     height: 100% !important;
-    fill: #666; /* 通常時はグレー */
+    fill: #666;
+    /* 通常時はグレー */
 }
 
 /* アクティブ時（ON）の色 (Flat Black Green) */
@@ -355,7 +411,8 @@ body {
     position: relative;
     height: 20px;
     display: flex;
-    align-items: center; /* 縦方向の中央に揃える */
+    align-items: center;
+    /* 縦方向の中央に揃える */
 }
 
 /* 緑色の進行バー */
@@ -374,15 +431,24 @@ progress.amplitude-song-played-progress {
     box-sizing: border-box;
     padding: 0 7px;
 }
-progress.amplitude-song-played-progress::-webkit-progress-bar { background: #444; border-radius: 2px; }
-progress.amplitude-song-played-progress::-webkit-progress-value { background: #55b560; border-radius: 2px; }
+
+progress.amplitude-song-played-progress::-webkit-progress-bar {
+    background: #444;
+    border-radius: 2px;
+}
+
+progress.amplitude-song-played-progress::-webkit-progress-value {
+    background: #55b560;
+    border-radius: 2px;
+}
 
 /* 白いつまみがあるスライダー */
 input[type="range"].amplitude-song-slider {
     -webkit-appearance: none;
     appearance: none;
     width: 100%;
-    height: 20px; /* 親の .bar-wrapper と高さを合わせる */
+    height: 20px;
+    /* 親の .bar-wrapper と高さを合わせる */
     margin: 0;
     background: transparent;
     position: relative;
@@ -394,9 +460,11 @@ input[type="range"].amplitude-song-slider {
 /* スキャンの通り道（トラック）の高さを明示的に指定 */
 input[type="range"].amplitude-song-slider::-webkit-slider-runnable-track {
     width: 100%;
-    height: 4px; /* progress と同じ高さ */
+    height: 4px;
+    /* progress と同じ高さ */
     cursor: pointer;
-    background: transparent; /* 背景は下の progress 要素に任せる */
+    background: transparent;
+    /* 背景は下の progress 要素に任せる */
 }
 
 /* 白い●つまみの位置調整 */
@@ -408,8 +476,8 @@ input[type="range"].amplitude-song-slider::-webkit-slider-thumb {
     background: #FFF;
     cursor: pointer;
     /* トラック(4px)の真ん中に14pxの丸を置くための計算: (4/2) - (14/2) = -5px */
-    margin-top: -5px; 
-    box-shadow: 0 0 5px rgba(0,0,0,0.5);
+    margin-top: -5px;
+    box-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
 }
 
 /* 時間表示の設定（バーの下に配置） */
@@ -417,35 +485,45 @@ input[type="range"].amplitude-song-slider::-webkit-slider-thumb {
     display: flex;
     justify-content: space-between;
     width: 100%;
-    margin-top: 2px; /* バーとの隙間 */
+    margin-top: 2px;
+    /* バーとの隙間 */
     color: #666;
     font-size: 11px;
     font-family: monospace;
 }
 
 /* 8. スクロールバー */
-#track_list::-webkit-scrollbar { width: 6px; }
-#track_list::-webkit-scrollbar-track { background: #141920; }
-#track_list::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
+#track_list::-webkit-scrollbar {
+    width: 6px;
+}
+
+#track_list::-webkit-scrollbar-track {
+    background: #141920;
+}
+
+#track_list::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 10px;
+}
 
 /* 9. Setup Area (認証ボタン等) */
-.setup-area { 
-    width: 100%; 
-    max-width: 450px; 
-    padding: 15px 15px 5px 15px; 
-    box-sizing: border-box; 
+.setup-area {
+    width: 100%;
+    max-width: 450px;
+    padding: 15px 15px 5px 15px;
+    box-sizing: border-box;
     display: flex;
     flex-direction: column;
     gap: 10px;
 }
 
-button#auth_btn { 
-    width: 100%; 
-    padding: 12px; 
-    background: #222; 
-    color: #fff; 
-    border: 1px solid #444; 
-    border-radius: 8px; 
+button#auth_btn {
+    width: 100%;
+    padding: 12px;
+    background: #222;
+    color: #fff;
+    border: 1px solid #444;
+    border-radius: 8px;
     cursor: pointer;
     font-weight: bold;
     transition: background 0.3s;
@@ -509,7 +587,7 @@ button#auth_btn:hover {
     border: 1px solid rgba(85, 181, 96, 0.3);
     border-radius: 8px;
     overflow-y: auto;
-    display: none; 
+    display: none;
     box-shadow: 0 15px 40px rgba(0, 0, 0, 0.6);
     z-index: 20001;
     backdrop-filter: blur(20px);
@@ -542,9 +620,20 @@ button#auth_btn:hover {
 }
 
 /* スクロールバーのカスタマイズ (リスト内) */
-.custom-playlist-list::-webkit-scrollbar { width: 5px; }
-.custom-playlist-list::-webkit-scrollbar-track { background: transparent; }
-.custom-playlist-list::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
+.custom-playlist-list::-webkit-scrollbar {
+    width: 5px;
+}
+
+.custom-playlist-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.custom-playlist-list::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 10px;
+}
 
 /* 元のセレクトボックスを隠す */
-#playlist_selector { display: none !important; }
+#playlist_selector {
+    display: none !important;
+}

@@ -55,7 +55,7 @@ const MetadataQueue = {
                     setTimeout(() => this.next(), 0);
                 }
             });
-            
+
             // 安全策：キューが止まっている（pendingがあるのにrunningが0）なら再始動
             if (this.running === 0) {
                 this.next();
@@ -68,7 +68,7 @@ const MetadataQueue = {
         if (this.running >= this.maxConcurrent || this.pending.length === 0) {
             return;
         }
-        
+
         while (this.running < this.maxConcurrent && this.pending.length > 0) {
             this.running++;
             const task = this.pending.shift();
@@ -100,7 +100,7 @@ function getFallbackLabel(filename, yearName) {
         const titleL = title.toLowerCase();
         const aliases = { "micky more & andy tee": ["mm & at"], "dave lee zr": ["dave lee"], "dave lee": ["dave lee zr"] };
         const isDuplicate = titleL.startsWith(artistL) || (aliases[artistL] && aliases[artistL].some(a => titleL.startsWith(a.toLowerCase())));
-        
+
         if (isDuplicate) {
             return `${date} ${title}`;
         } else {
@@ -139,7 +139,7 @@ const JukeboxDB = {
         return withTimeout(new Promise((resolve, reject) => {
             console.log("Opening IndexedDB (v" + this.dbVersion + ")...");
             const request = indexedDB.open(this.dbName, this.dbVersion);
-            
+
             request.onblocked = () => {
                 console.warn("IndexedDB open blocked. Please close other tabs of this app.");
                 // alert("Database upgrade blocked. Please close other Jukebox tabs.");
@@ -148,11 +148,11 @@ const JukeboxDB = {
             request.onupgradeneeded = (e) => {
                 const db = e.target.result;
                 console.log("IndexedDB Upgrade Needed. Current version: " + e.oldVersion);
-                
+
                 if (!db.objectStoreNames.contains('playlists')) {
                     db.createObjectStore('playlists', { keyPath: 'fileId' });
                 }
-                
+
                 // v50: ファイル名 -> Google Drive ID のマッピング用ストア
                 if (!db.objectStoreNames.contains('fileIds')) {
                     const store = db.createObjectStore('fileIds', { keyPath: 'name' });
@@ -166,12 +166,12 @@ const JukeboxDB = {
                     }
                 }
             };
-            
+
             request.onerror = (e) => {
                 console.error("IndexedDB Open Error:", e);
                 reject(new Error("IndexedDB open error"));
             };
-            
+
             request.onsuccess = (e) => {
                 this.db = e.target.result;
                 // ストアとインデックスの最終チェック
@@ -182,7 +182,7 @@ const JukeboxDB = {
                 } catch (err) {
                     console.warn("Check index error:", err);
                 }
-                
+
                 if (!hasStore || !hasIndex) {
                     console.warn("DB schema incomplete (Store: " + hasStore + ", Index: " + hasIndex + "). Forcing upgrade...");
                     const nextVer = Math.max(this.db.version + 1, 3);
@@ -194,7 +194,7 @@ const JukeboxDB = {
                         if (!db2.objectStoreNames.contains('playlists')) db2.createObjectStore('playlists', { keyPath: 'fileId' });
                         if (!db2.objectStoreNames.contains('fileIds')) {
                             const s = db2.createObjectStore('fileIds', { keyPath: 'name' });
-                            s.add({name: "__schema_ver__", id: nextVer, updatedAt: Date.now()}); 
+                            s.add({ name: "__schema_ver__", id: nextVer, updatedAt: Date.now() });
                             s.createIndex('updatedAt', 'updatedAt', { unique: false });
                         } else {
                             const s = ev.target.transaction.objectStore('fileIds');
@@ -218,7 +218,7 @@ const JukeboxDB = {
                 request.onsuccess = () => resolve(request.result);
                 request.onerror = () => reject(new Error("Get Error"));
             }), 5000, "DB Get " + fileId);
-        } catch(e) { return null; }
+        } catch (e) { return null; }
     },
     async set(fileId, data) {
         try {
@@ -236,7 +236,7 @@ const JukeboxDB = {
                 request.onsuccess = () => resolve();
                 request.onerror = () => reject(new Error("Set Error"));
             }), 5000, "DB Set " + fileId);
-        } catch(e) { /* ignore */ }
+        } catch (e) { /* ignore */ }
     },
     // v50: ファイル名からIDを取得
     async getFileId(name) {
@@ -248,7 +248,7 @@ const JukeboxDB = {
                 request.onsuccess = () => resolve(request.result ? request.result.id : null);
                 request.onerror = () => reject(new Error("GetFileId Error"));
             }), 3000, "DB GetFileId " + name);
-        } catch(e) { return null; }
+        } catch (e) { return null; }
     },
     // v50: ファイル名からIDを保存 (2000件を超えたら古いものを削除)
     async setFileId(name, id) {
@@ -267,7 +267,7 @@ const JukeboxDB = {
             const transaction = db.transaction(['fileIds'], 'readwrite');
             const store = transaction.objectStore('fileIds');
             const countRequest = store.count();
-            
+
             countRequest.onsuccess = () => {
                 if (countRequest.result > 2000) {
                     console.log("Pruning fileId cache (count: " + countRequest.result + ")");
@@ -285,7 +285,7 @@ const JukeboxDB = {
                     };
                 }
             };
-        } catch(e) { /* ignore */ }
+        } catch (e) { /* ignore */ }
     },
     async clearAll() {
         try {
@@ -297,7 +297,7 @@ const JukeboxDB = {
                 transaction.oncomplete = () => resolve();
                 transaction.onerror = () => resolve();
             });
-        } catch(e) { /* ignore */ }
+        } catch (e) { /* ignore */ }
     }
 };
 
@@ -520,8 +520,8 @@ async function initApp() {
         updateStatus("Accessing Google Drive API...");
         await gapi.client.load('https://www.googleapis.com/discovery/v1/apis/drive/v3/rest');
         gapiInited = true;
-    } catch (e) { 
-        console.error("GAPI Error", e); 
+    } catch (e) {
+        console.error("GAPI Error", e);
         updateStatus("Google API Error");
     }
 
@@ -637,7 +637,7 @@ async function startDiscovery() {
             q: "name = 'music_backup' and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
             fields: 'files(id)'
         }), 10000, "Discovery Project Root");
-        
+
         if (res.result.files && res.result.files.length > 0) {
             await findYearFolders(res.result.files[0].id);
         } else {
@@ -658,7 +658,7 @@ async function findYearFolders(parentId) {
     const yearFolders = res.result.files
         .filter(f => f.name.match(/^\d{4}$/) && parseInt(f.name) >= 2023)
         .sort((a, b) => b.name.localeCompare(a.name));
-    
+
     let allFavs = [];
     let allRegs = [];
 
@@ -674,7 +674,7 @@ async function findYearFolders(parentId) {
 
     selector.append(...allFavs, ...allRegs);
     updateStatus("DJ Charts Loaded.");
-    
+
     // v46: カスタムセレクターを更新 & 有効化
     renderCustomPlaylistList();
     setupCustomSelectorEvents();
@@ -692,25 +692,25 @@ async function findYearFolders(parentId) {
 function renderCustomPlaylistList() {
     if (!customPlaylistList) return;
     customPlaylistList.innerHTML = '';
-    
+
     const options = Array.from(selector.options).filter(opt => opt.value !== "");
     options.forEach(opt => {
         const item = document.createElement('div');
         item.className = 'custom-playlist-item';
         item.innerText = opt.innerText;
         item.dataset.value = opt.value;
-        
+
         // 元のセレクトボックスの選択状態を反映
         if (selector.value === opt.value) {
             item.classList.add('selected');
         }
-        
+
         item.onclick = (e) => {
             e.stopPropagation();
             selector.value = opt.value;
             // dispatch change event to trigger selector.onchange
             selector.dispatchEvent(new Event('change'));
-            
+
             // UI更新
             document.querySelectorAll('.custom-playlist-item').forEach(i => i.classList.remove('selected'));
             item.classList.add('selected');
@@ -726,20 +726,20 @@ function renderCustomPlaylistList() {
  */
 function setupCustomSelectorEvents() {
     if (!playlistSearch || !customPlaylistList) return;
-    
+
     let lastSearchQuery = "";
 
     // 入力時のフィルタリング
-        playlistSearch.oninput = (e) => {
+    playlistSearch.oninput = (e) => {
         lastSearchQuery = e.target.value;
         const query = lastSearchQuery.toLowerCase();
         const items = customPlaylistList.querySelectorAll('.custom-playlist-item');
         let hasVisible = false;
-        
+
         if (clearSearchBtn) {
             clearSearchBtn.style.display = lastSearchQuery.length > 0 ? 'block' : 'none';
         }
-        
+
         items.forEach(item => {
             const text = item.innerText.toLowerCase();
             if (text.includes(query)) {
@@ -749,7 +749,7 @@ function setupCustomSelectorEvents() {
                 item.style.display = 'none';
             }
         });
-        
+
         customPlaylistList.style.display = hasVisible ? 'block' : 'none';
     };
 
@@ -757,14 +757,14 @@ function setupCustomSelectorEvents() {
     playlistSearch.onfocus = () => {
         if (customPlaylistList.innerHTML !== '') {
             customPlaylistList.style.display = 'block';
-            
+
             // v48: 前回の検索ワードを復元（選んだリスト名で埋まるのを防ぐ）
             playlistSearch.value = lastSearchQuery;
-            
+
             if (clearSearchBtn) {
                 clearSearchBtn.style.display = lastSearchQuery.length > 0 ? 'block' : 'none';
             }
-            
+
             // 入力中ならフィルタリング、空なら全表示
             const query = lastSearchQuery.toLowerCase();
             const items = customPlaylistList.querySelectorAll('.custom-playlist-item');
@@ -793,7 +793,7 @@ function setupCustomSelectorEvents() {
     playlistSearch.onkeydown = (e) => {
         if (e.key === 'Escape') {
             customPlaylistList.style.display = 'none';
-            
+
             // v53: キャンセル時、現在選択中のチャート名に戻す
             const selectedOpt = selector.options[selector.selectedIndex];
             if (selectedOpt && selectedOpt.value !== "") {
@@ -833,7 +833,7 @@ async function findTracksFolder(yearId, yearName) {
         q: `'${yearId}' in parents and name = 'tracks' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
         fields: 'files(id)'
     }), 10000, "Finding tracks folder (" + yearName + ")");
-    
+
     // 返り値用の配列
     const results = { favs: [], regs: [] };
 
@@ -843,7 +843,7 @@ async function findTracksFolder(yearId, yearName) {
             fields: 'files(id, name)',
             pageSize: 1000
         }), 15000, "Listing JSON files (" + yearName + ")");
-        
+
         // v47: 最新のファイルから先に MetadataQueue に追加されるようソート
         jRes.result.files.sort((a, b) => b.name.localeCompare(a.name));
 
@@ -866,7 +866,7 @@ async function findTracksFolder(yearId, yearName) {
                 const updatedAt = cached.updatedAt || 0;
                 const isNew = (now - createdAt) < REFLECTION_TIME_MS;
                 const isFavoritesFile = /favorites/i.test(file.name);
-                
+
                 let isUpdated = false;
                 if (cached.isIncomplete || isFavoritesFile) {
                     if ((now - updatedAt) < REFLECTION_TIME_MS) {
@@ -875,7 +875,7 @@ async function findTracksFolder(yearId, yearName) {
                 }
 
                 let displayLabel = formatPlaylistLabel(cached.label, isNew, isUpdated, cached.isIncomplete);
-                
+
                 opt.innerText = displayLabel;
                 updateCustomItemLabel(opt.value, displayLabel);
                 isFavoritesFile ? results.favs.push(opt) : results.regs.push(opt);
@@ -887,7 +887,7 @@ async function findTracksFolder(yearId, yearName) {
                     console.log("Using cached label (skipping update):", cached.label);
                     continue;
                 }
-                
+
                 const folderYear = parseInt(yearName);
                 const currentYear = new Date().getFullYear();
                 if (folderYear < currentYear - 1) {
@@ -903,7 +903,7 @@ async function findTracksFolder(yearId, yearName) {
             MetadataQueue.add(async () => {
                 try {
                     // console.log("Starting background metadata fetch:", file.name);
-                    
+
                     // v51.1: 8秒で一度諦める。ただし一度だけリトライ。
                     const fetchMeta = async (fileId, timeoutMs) => {
                         return withTimeout(gapi.client.request({
@@ -921,15 +921,15 @@ async function findTracksFolder(yearId, yearName) {
                             jData = await fetchMeta(file.id, 5000); // リトライは短め
                         } catch (e2) {
                             console.warn("Background fetch failed even after retry for:", file.name);
-                            return; 
+                            return;
                         }
                     }
-                    
+
                     // console.log("Received metadata response for:", file.name);
-                    
+
                     let d = jData.result;
                     if (typeof d === 'string') {
-                        try { d = JSON.parse(d); } catch(e) { console.error("JSON Parse Error:", e); return; }
+                        try { d = JSON.parse(d); } catch (e) { console.error("JSON Parse Error:", e); return; }
                     }
 
                     if (d && d.chart) {
@@ -976,7 +976,7 @@ async function findTracksFolder(yearId, yearName) {
 
                         const cacheData = { label, playlistDate, isIncomplete, updatedAt, metaOnly: !isFavoritesFile && !isIncomplete };
                         if (isFavoritesFile || isIncomplete) cacheData.chart = d.chart;
-                        
+
                         await JukeboxDB.set(file.id, cacheData);
                         // console.log("Completed background metadata fetch:", displayLabel);
                     }
@@ -1017,7 +1017,7 @@ selector.onchange = async (e) => {
         currentPlaylist = cached.chart;
         currentPlaylistDate = cached.playlistDate || "";
         currentIsIncomplete = cached.isIncomplete || false;
-        
+
         // v42: 初期化（全体描画用にフラグを立てるが、後の比較で上書きされる可能性あり）
         const selectedOpt = selector.options[selector.selectedIndex];
         const labelText = selectedOpt ? selectedOpt.innerText : "";
@@ -1044,13 +1044,13 @@ selector.onchange = async (e) => {
 
         if (oldJson !== newJson || currentPlaylistDate !== newDate || currentIsIncomplete !== newIsIncomplete) {
             console.log("DJ Chart updated from Drive. Re-rendering...");
-            
+
             // v42: 新着判定と新曲比較
             const selectedOpt = selector.options[selector.selectedIndex];
             const labelText = selectedOpt ? selectedOpt.innerText : "";
             currentIsNewPlaylist = labelText.startsWith("🆕");
             currentNewMp3s.clear();
-            
+
             if (!currentIsNewPlaylist && labelText.startsWith("🆙") && currentPlaylist.length > 0) {
                 // 既存のMP3ファイル名のセットを作成
                 const oldMp3s = new Set(currentPlaylist.map(t => (t && t.mp3_file) ? t.mp3_file.split('/').pop() : "").filter(f => f));
@@ -1255,7 +1255,7 @@ async function prefetchNextTrack(currentIndex) {
 
         // v50: まずキャッシュを確認
         let targetId = await JukeboxDB.getFileId(fileName);
-        
+
         if (!targetId) {
             // 2. キャッシュになければ Google Drive からファイルIDを特定
             const fRes = await gapi.client.drive.files.list({
@@ -1438,13 +1438,13 @@ async function playWithAmplitude(index) {
 
         // --- 3. 先読みがない場合、通常通りダウンロード ---
         const fileName = track.mp3_file.split('/').pop();
-        
+
         // v50: まずキャッシュを確認
         let targetId = await JukeboxDB.getFileId(fileName);
-        
+
         if (!targetId) {
             updateStatus(`Searching: ${fileName}`);
-            
+
             // v50: タイムアウト付きの検索 (10秒)
             const searchDrive = async () => {
                 const fRes = await gapi.client.drive.files.list({
@@ -1454,7 +1454,7 @@ async function playWithAmplitude(index) {
                 return (fRes.result.files && fRes.result.files.length > 0) ? fRes.result.files[0].id : null;
             };
 
-            
+
             try {
                 targetId = await withTimeout(searchDrive(), 10000, "Search Drive " + fileName);
                 if (targetId) {
@@ -1468,7 +1468,7 @@ async function playWithAmplitude(index) {
                 try {
                     targetId = await withTimeout(searchDrive(), 15000, "Search Drive (Deep) " + fileName);
                     if (targetId) await JukeboxDB.setFileId(fileName, targetId);
-                } catch(e2) {
+                } catch (e2) {
                     console.error("Retry failed:", e2);
                 }
             }
@@ -1476,14 +1476,14 @@ async function playWithAmplitude(index) {
 
         if (targetId) {
             updateStatus('Downloading...');
-            
+
             const fetchFile = async () => {
                 const response = await gapi.client.drive.files.get({ fileId: targetId, alt: 'media' });
                 return response;
             };
-            
+
             const downloadTimeout = (ms) => new Promise((_, reject) => setTimeout(() => reject(new Error("Download Timeout")), ms));
-            
+
             let response;
             try {
                 // v50: ダウンロードにもタイムアウト (30秒)
