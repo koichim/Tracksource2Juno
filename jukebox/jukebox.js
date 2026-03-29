@@ -13,7 +13,7 @@ let isPrefetching = false;
 let isShuffleOn = false;
 let isRepeatOn = false;
 let playGeneration = 0; // 世代管理：古い再生予約をキャンセルするため
-const APP_VERSION = "v57"; // プロダクション用バージョン
+const APP_VERSION = "v58"; // プロダクション用バージョン
 let currentPlaylistDate = ""; // v23: 現在のリストの日付
 let currentIsIncomplete = false; // v25: 現在のリストが未完成か
 const REFLECTION_TIME_DAYS = 15; // v35: 15日間
@@ -397,7 +397,7 @@ const syncUI = () => {
                 navigator.mediaSession.playbackState = targetState;
             }
         }
-        const version = "v57";
+        const version = APP_VERSION;
         const appVersionEl = document.getElementById('app-version');
         if (appVersionEl) appVersionEl.innerText = version;
     } catch (err) {
@@ -918,15 +918,19 @@ async function findTracksFolder(yearId, yearName) {
                     };
 
                     let jData;
-                    try {
-                        jData = await fetchMeta(file.id, 8000);
-                    } catch (e) {
-                        console.warn("Background fetch timeout (8s), retrying once for:", file.name);
+                    const maxRetries = 10;
+                    for (let i = 1; i <= maxRetries; i++) {
                         try {
-                            jData = await fetchMeta(file.id, 5000); // リトライは短め
-                        } catch (e2) {
-                            console.warn("Background fetch failed even after retry for:", file.name);
-                            return;
+                            const timeoutMs = (i === 1) ? 8000 : 5000;
+                            jData = await fetchMeta(file.id, timeoutMs);
+                            console.log(`[Success] Background fetch metadata for: ${file.name} (Attempt ${i}/${maxRetries})`);
+                            break;
+                        } catch (e) {
+                            if (i === maxRetries) {
+                                console.error(`[Give up] Background fetch failed after ${maxRetries} attempts for: ${file.name}`);
+                                return;
+                            }
+                            console.warn(`[Retry] Background fetch timeout, retrying (${i}/${maxRetries}) for: ${file.name}`);
                         }
                     }
 
