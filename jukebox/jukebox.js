@@ -13,7 +13,7 @@ let isPrefetching = false;
 let isShuffleOn = false;
 let isRepeatOn = false;
 let playGeneration = 0; // 世代管理：古い再生予約をキャンセルするため
-const APP_VERSION = "v60"; // プロダクション用バージョン
+const APP_VERSION = "v61"; // プロダクション用バージョン
 let currentPlaylistDate = ""; // v23: 現在のリストの日付
 let currentIsIncomplete = false; // v25: 現在のリストが未完成か
 const REFLECTION_TIME_DAYS = 15; // v35: 15日間
@@ -503,11 +503,10 @@ async function initApp() {
                         el.setAttribute('amplitude-player-state', state);
                         console.log("Player state changed to:", state);
                     }
-                },
-                song_ended: function () {
-                    console.log("Amplitude Callback: Song ended. Moving to next...");
-                    playNextTrack();
                 }
+                // v61: song_ended コールバックを削除。
+                // ネイティブ audio.onended（世代チェック付き）と監視タイマーに一本化することで、
+                // 二重発火によるデッドロックを防止する。
             }
         });
     }
@@ -1477,7 +1476,18 @@ async function prefetchNextTrack(currentIndex) {
 }
 
 // --- 再生制御の統合ヘルパー ---
+let isNextTrackPending = false; // v61: 二重呼び出し防止フラグ
 function playNextTrack() {
+    // v61: 二重呼び出し防止（ネイティブonendedと監視タイマーの競合対策）
+    if (isNextTrackPending) {
+        console.warn("playNextTrack: Already pending. Ignoring duplicate call.");
+        return;
+    }
+    isNextTrackPending = true;
+    // フラグは playWithAmplitude 内の startPlayback 完了後にリセットされる
+    // 万が一リセットされない場合の安全策として 5秒後に自動リセット
+    setTimeout(() => { isNextTrackPending = false; }, 5000);
+
     // すでに先読み済みのインデックスがあればそれを優先する（シャッフル時も含む）
     if (nextTrackIndex !== -1) {
         console.log(`Using prefetched index: ${nextTrackIndex}`);
@@ -1783,6 +1793,7 @@ function startPlayback(index, url, cover, gen) {
 
     updateStatus('Playing');
     isLoadingTrack = false;
+    isNextTrackPending = false; // v61: 次曲遷移の二重呼び出し防止フラグをリセット
 
     console.log(`[Gen ${gen}] Starting prefetch...`);
     prefetchNextTrack(index);
