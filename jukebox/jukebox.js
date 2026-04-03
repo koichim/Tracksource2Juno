@@ -13,7 +13,7 @@ let isPrefetching = false;
 let isShuffleOn = false;
 let isRepeatOn = false;
 let playGeneration = 0; // 世代管理：古い再生予約をキャンセルするため
-const APP_VERSION = "v58"; // プロダクション用バージョン
+const APP_VERSION = "v60"; // プロダクション用バージョン
 let currentPlaylistDate = ""; // v23: 現在のリストの日付
 let currentIsIncomplete = false; // v25: 現在のリストが未完成か
 const REFLECTION_TIME_DAYS = 15; // v35: 15日間
@@ -1384,6 +1384,7 @@ async function prefetchNextTrack(currentIndex) {
         const track = currentPlaylist[targetIndex];
         const fileName = track.mp3_file.split('/').pop();
         console.log(`Prefetching start: ${track.title} (${fileName})`);
+        updateStatus(`⏳ Pre-fetching: ${track.title}`);
 
         // v50: まずキャッシュを確認
         let targetId = await JukeboxDB.getFileId(fileName);
@@ -1438,11 +1439,38 @@ async function prefetchNextTrack(currentIndex) {
 
             nextCoverUrl = coverUrl;
             console.log(`Prefetch complete: ${track.title}`);
+            updateStatus(`✅ Pre-fetched: ${track.title}`);
+            setTimeout(() => {
+                const audio = getRealAudio();
+                if (audio && !audio.paused && currentTrackIndex >= 0 && currentPlaylist[currentTrackIndex]) {
+                    updateStatus(`Playing: ${currentPlaylist[currentTrackIndex].title}`);
+                } else {
+                    updateStatus("Ready");
+                }
+            }, 3000);
         } else {
             console.warn(`Prefetch failed: File not found (${fileName})`);
+            updateStatus(`⚠️ Pre-fetch failed: ${fileName}`);
+            setTimeout(() => {
+                const audio = getRealAudio();
+                if (audio && !audio.paused && currentTrackIndex >= 0 && currentPlaylist[currentTrackIndex]) {
+                    updateStatus(`Playing: ${currentPlaylist[currentTrackIndex].title}`);
+                } else {
+                    updateStatus("Ready");
+                }
+            }, 3000);
         }
     } catch (e) {
         console.error("Prefetch process error:", e);
+        updateStatus(`⚠️ Pre-fetch error: ${e.message || e}`);
+        setTimeout(() => {
+            const audio = getRealAudio();
+            if (audio && !audio.paused && currentTrackIndex >= 0 && currentPlaylist[currentTrackIndex]) {
+                updateStatus(`Playing: ${currentPlaylist[currentTrackIndex].title}`);
+            } else {
+                updateStatus("Ready");
+            }
+        }, 3000);
     } finally {
         isPrefetching = false;
     }
@@ -1587,7 +1615,7 @@ async function playWithAmplitude(index) {
         }
 
         if (targetId) {
-            updateStatus('Downloading...');
+            updateStatus(`Downloading: ${track.title}`);
 
             const fetchFile = async () => {
                 const response = await gapi.client.drive.files.get({ fileId: targetId, alt: 'media' });
@@ -1602,7 +1630,7 @@ async function playWithAmplitude(index) {
                 response = await Promise.race([fetchFile(), downloadTimeout(30000)]);
             } catch (err) {
                 console.error("Download failed or timed out:", err);
-                updateStatus("Download Timeout");
+                updateStatus(`Download Timeout: ${track.title}`);
                 isLoadingTrack = false;
                 return;
             }
