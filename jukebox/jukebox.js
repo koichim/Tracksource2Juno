@@ -14,7 +14,7 @@ let isPrefetching = false;
 let isShuffleOn = false;
 let isRepeatOn = false;
 let playGeneration = 0; // 世代管理：古い再生予約をキャンセルするため
-const APP_VERSION = "v62"; // プロダクション用バージョン
+const APP_VERSION = "v63"; // プロダクション用バージョン
 let currentPlaylistDate = ""; // v23: 現在のリストの日付
 let currentIsIncomplete = false; // v25: 現在のリストが未完成か
 const REFLECTION_TIME_DAYS = 15; // v35: 15日間
@@ -412,25 +412,87 @@ document.addEventListener('visibilitychange', syncUI);
 window.addEventListener('focus', syncUI);
 
 /**
- * トークンの有効期限をチェックし、必要であればサイレントリフレッシュを行う (v62)
+ * トークンの有効期限をチェックし、必要であればサイレントリフレッシュを行う (v63: 非同期対応)
  */
-function checkTokenExpiry() {
+async function ensureValidToken() {
     const storedToken = localStorage.getItem('gdrive_token');
-    if (!storedToken || !tokenClient) return;
+    const now = Date.now();
+    let needsRefresh = false;
 
-    try {
-        const tokenData = JSON.parse(storedToken);
-        const now = new Date().getTime();
-        // 期限の10分前（600,000ms）を切っていたらリフレッシュ
-        if (tokenData.expires_at && (tokenData.expires_at - now) < 600000) {
-            console.log("[Auth] Token is expiring soon. Triggering silent refresh...");
-            tokenClient.requestAccessToken({ prompt: '' });
+    if (!storedToken) {
+        needsRefresh = true;
+    } else {
+        try {
+            const tokenData = JSON.parse(storedToken);
+            // 5分前（300,000ms）を切っていたら更新対象
+            if (!tokenData.expires_at || (tokenData.expires_at - now) < 300000) {
+                needsRefresh = true;
+            }
+        } catch (e) {
+            needsRefresh = true;
         }
+    }
+
+    if (needsRefresh && tokenClient) {
+        console.log("[Auth] Token invalid or expiring soon. Refreshing...");
+        updateStatus("Refreshing authorization...");
+        
+        // すでに待機中ならそれを待つ
+        if (tokenResolve) {
+            await new Promise((res, rej) => {
+                const check = () => {
+                    if (!tokenResolve) res();
+                    else setTimeout(check, 100);
+                };
+                check();
+            });
+            return;
+        }
+
+        return new Promise((resolve, reject) => {
+            tokenResolve = resolve;
+            tokenReject = reject;
+            tokenClient.requestAccessToken({ prompt: '' });
+            // 安全のため30秒でタイムアウト
+            setTimeout(() => {
+                if (tokenResolve) {
+                    tokenReject(new Error("Token Refresh Timeout"));
+                    tokenResolve = null;
+                    tokenReject = null;
+                }
+            }, 30000);
+        });
+    }
+}
+
+async function checkTokenExpiry() {
+    try {
+        await ensureValidToken();
     } catch (e) {
         console.error("[Auth] checkTokenExpiry error:", e);
     }
 }
 setInterval(checkTokenExpiry, 60000); // 1分ごとにチェック
+
+/**
+ * GAPIリクエストを認証状態で実行し、401エラー時は自動リフレッシュして1回リトライする (v63)
+ */
+async function authorizedRequest(requestFunc) {
+    await ensureValidToken();
+    try {
+        const res = await requestFunc();
+        return res;
+    } catch (err) {
+        // 401 (Unauthorized) ならトークンを破棄してリトライ
+        if (err.status === 401 || (err.result && err.result.error && err.result.error.code === 401)) {
+            console.warn("[Auth] 401 Unauthorized detected. Retrying with fresh token...");
+            localStorage.removeItem('gdrive_token');
+            await ensureValidToken();
+            return await requestFunc();
+        }
+        throw err;
+    }
+}
 
 const authBtn = document.getElementById('auth_btn');
 const selector = document.getElementById('playlist_selector');
@@ -559,21 +621,42 @@ async function initApp() {
                 }));
                 gapi.client.setToken({ access_token: resp.access_token });
 
+                if (tokenResolve) {
+                    tokenResolve();
+                    tokenResolve = null;
+                    tokenReject = null;
+                }
+
                 if (!discoveryStarted) {
                     discoveryStarted = true;
                     authBtn.innerText = "Loading DJ charts...";
                     authBtn.disabled = true;
                     await startDiscovery();
                 } else {
-                    console.log("[Auth] Token refreshed silently.");
+                    console.log("[Auth] Token refreshed successfully.");
+                    updateStatus("Authorization refreshed.");
+                    setTimeout(() => {
+                        const audio = getRealAudio();
+                        if (audio && !audio.paused && currentTrackIndex >= 0 && currentPlaylist[currentTrackIndex]) {
+                            updateStatus(`Playing: ${currentPlaylist[currentTrackIndex].title}`);
+                        } else {
+                            updateStatus("Ready");
+                        }
+                    }, 2000);
                 }
             } else if (resp.error) {
                 console.error("[Auth] Token callback error:", resp.error);
+                if (tokenReject) {
+                    tokenReject(new Error(resp.error));
+                    tokenResolve = null;
+                    tokenReject = null;
+                }
                 if (resp.error === 'interaction_required') {
                     // サイレントリフレッシュ失敗時は再認証を促す
                     authBtn.style.display = 'block';
                     authBtn.disabled = false;
                     authBtn.innerText = "Re-Auth (Silent Refresh Failed)";
+                    updateStatus("Auth failed. Interaction required.");
                 }
             }
         }
@@ -674,10 +757,10 @@ authBtn.onclick = () => tokenClient.requestAccessToken({ prompt: '' });
 async function startDiscovery() {
     updateStatus("Listing up DJ charts...");
     try {
-        const res = await withTimeout(gapi.client.drive.files.list({
+        const res = await authorizedRequest(() => withTimeout(gapi.client.drive.files.list({
             q: "name = 'music_backup' and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
             fields: 'files(id)'
-        }), 10000, "Discovery Project Root");
+        }), 10000, "Discovery Project Root"));
 
         if (res.result.files && res.result.files.length > 0) {
             await findYearFolders(res.result.files[0].id);
@@ -691,10 +774,10 @@ async function startDiscovery() {
 }
 
 async function findYearFolders(parentId) {
-    const res = await withTimeout(gapi.client.drive.files.list({
+    const res = await authorizedRequest(() => withTimeout(gapi.client.drive.files.list({
         q: `'${parentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
         fields: 'files(id, name)'
-    }), 10000, "Listing Year Folders");
+    }), 10000, "Listing Year Folders"));
     selector.innerHTML = '<option value="">Select DJ Chart...</option>';
     const yearFolders = res.result.files
         .filter(f => f.name.match(/^\d{4}$/) && parseInt(f.name) >= 2023)
@@ -877,20 +960,20 @@ function updateCustomItemLabel(value, label) {
 }
 
 async function findTracksFolder(yearId, yearName) {
-    const res = await withTimeout(gapi.client.drive.files.list({
+    const res = await authorizedRequest(() => withTimeout(gapi.client.drive.files.list({
         q: `'${yearId}' in parents and name = 'tracks' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
         fields: 'files(id)'
-    }), 10000, "Finding tracks folder (" + yearName + ")");
+    }), 10000, "Finding tracks folder (" + yearName + ")"));
 
     // 返り値用の配列
     const results = { favs: [], regs: [] };
 
     for (const tf of res.result.files) {
-        const jRes = await withTimeout(gapi.client.drive.files.list({
+        const jRes = await authorizedRequest(() => withTimeout(gapi.client.drive.files.list({
             q: `'${tf.id}' in parents and mimeType = 'application/json' and trashed = false`,
             fields: 'files(id, name)',
             pageSize: 1000
-        }), 15000, "Listing JSON files (" + yearName + ")");
+        }), 15000, "Listing JSON files (" + yearName + ")"));
 
         // v47: 最新のファイルから先に MetadataQueue に追加されるようソート
         jRes.result.files.sort((a, b) => b.name.localeCompare(a.name));
@@ -950,12 +1033,12 @@ async function findTracksFolder(yearId, yearName) {
                 try {
                     // console.log("Starting background metadata fetch:", file.name);
 
-                    // v51.1: 8秒で一度諦める。ただし一度だけリトライ。
+                    // v51.1/v63: 8秒で一度諦める。ただし一度だけリトライ。認証付与。
                     const fetchMeta = async (fileId, timeoutMs) => {
-                        return withTimeout(gapi.client.request({
+                        return authorizedRequest(() => withTimeout(gapi.client.request({
                             path: `https://www.googleapis.com/drive/v3/files/${fileId}`,
                             params: { alt: 'media' }
-                        }), timeoutMs, "Fetch " + file.name);
+                        }), timeoutMs, "Fetch " + file.name));
                     };
 
                     let jData;
@@ -1110,7 +1193,7 @@ selector.onchange = async (e) => {
 
     // 2. バックグラウンドで最新情報を取得
     try {
-        const res = await gapi.client.drive.files.get({ fileId: fileId, alt: 'media' });
+        const res = await authorizedRequest(() => gapi.client.drive.files.get({ fileId: fileId, alt: 'media' }));
         const newChart = res.result.chart || [];
         const newDate = res.result.date || "";
         // v25: 1-10曲目に未完成があるか
@@ -1426,11 +1509,11 @@ async function prefetchNextTrack(currentIndex) {
         let targetId = await JukeboxDB.getFileId(fileName);
 
         if (!targetId) {
-            // 2. キャッシュになければ Google Drive からファイルIDを特定
-            const fRes = await gapi.client.drive.files.list({
+            // 2. キャッシュになければ Google Drive からファイルIDを特定 (v63: 認証追加)
+            const fRes = await authorizedRequest(() => gapi.client.drive.files.list({
                 q: `name = '${fileName.replace(/'/g, "\\'")}' and trashed = false`,
                 fields: 'files(id)', pageSize: 1
-            });
+            }));
 
             if (fRes.result.files && fRes.result.files.length > 0) {
                 targetId = fRes.result.files[0].id;
@@ -1439,8 +1522,8 @@ async function prefetchNextTrack(currentIndex) {
         }
 
         if (targetId) {
-            // 3. バイナリデータを取得（バックグラウンド）
-            const response = await gapi.client.drive.files.get({ fileId: targetId, alt: 'media' });
+            // 3. バイナリデータを取得（バックアップ）（v63: 認証追加）
+            const response = await authorizedRequest(() => gapi.client.drive.files.get({ fileId: targetId, alt: 'media' }));
 
             const str = response.body;
             const buf = new Uint8Array(str.length);
@@ -1632,12 +1715,12 @@ async function playWithAmplitude(index) {
         if (!targetId) {
             updateStatus(`Searching: ${fileName}`);
 
-            // v50: タイムアウト付きの検索 (10秒)
+            // v50: タイムアウト付きの検索 (10秒) / v63: 認証追加
             const searchDrive = async () => {
-                const fRes = await gapi.client.drive.files.list({
+                const fRes = await authorizedRequest(() => gapi.client.drive.files.list({
                     q: `name = '${fileName.replace(/'/g, "\\'")}' and trashed = false`,
                     fields: 'files(id)', pageSize: 1
-                });
+                }));
                 return (fRes.result.files && fRes.result.files.length > 0) ? fRes.result.files[0].id : null;
             };
 
@@ -1665,7 +1748,7 @@ async function playWithAmplitude(index) {
             updateStatus(`Downloading: ${track.title}`);
 
             const fetchFile = async () => {
-                const response = await gapi.client.drive.files.get({ fileId: targetId, alt: 'media' });
+                const response = await authorizedRequest(() => gapi.client.drive.files.get({ fileId: targetId, alt: 'media' }));
                 return response;
             };
 
