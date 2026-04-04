@@ -14,7 +14,7 @@ let isPrefetching = false;
 let isShuffleOn = false;
 let isRepeatOn = false;
 let playGeneration = 0; // 世代管理：古い再生予約をキャンセルするため
-const APP_VERSION = "v63"; // プロダクション用バージョン
+const APP_VERSION = "v66"; // プロダクション用バージョン
 let currentPlaylistDate = ""; // v23: 現在のリストの日付
 let currentIsIncomplete = false; // v25: 現在のリストが未完成か
 const REFLECTION_TIME_DAYS = 15; // v35: 15日間
@@ -133,22 +133,45 @@ function formatPlaylistLabel(baseLabel, isNew, isUpdated, isIncomplete) {
 // v19: IndexedDB によるキャッシュ管理
 const JukeboxDB = {
     dbName: 'jukebox_cache_db',
-    dbVersion: 3, // v50.1: fileIds に updatedAt インデックス追加のため 3 に
+    dbVersion: 5, // v65: スキーマ更新を確実にするため 5 に上げる
     db: null,
+    openPromise: null,
+    log(...args) {
+        if (typeof Logger !== 'undefined' && Logger.originalConsole) {
+            Logger.originalConsole.log.apply(console, args);
+        } else {
+            console.log.apply(console, args);
+        }
+    },
+    warn(...args) {
+        if (typeof Logger !== 'undefined' && Logger.originalConsole) {
+            Logger.originalConsole.warn.apply(console, args);
+        } else {
+            console.warn.apply(console, args);
+        }
+    },
+    error(...args) {
+        if (typeof Logger !== 'undefined' && Logger.originalConsole) {
+            Logger.originalConsole.error.apply(console, args);
+        } else {
+            console.error.apply(console, args);
+        }
+    },
     async open() {
         if (this.db) return this.db;
-        return withTimeout(new Promise((resolve, reject) => {
-            console.log("Opening IndexedDB (v" + this.dbVersion + ")...");
+        if (this.openPromise) return this.openPromise;
+
+        this.openPromise = withTimeout(new Promise((resolve, reject) => {
+            this.log("Opening IndexedDB (v" + this.dbVersion + ")...");
             const request = indexedDB.open(this.dbName, this.dbVersion);
 
             request.onblocked = () => {
-                console.warn("IndexedDB open blocked. Please close other tabs of this app.");
-                // alert("Database upgrade blocked. Please close other Jukebox tabs.");
+                this.warn("IndexedDB open blocked. Please close other tabs of this app.");
             };
 
             request.onupgradeneeded = (e) => {
                 const db = e.target.result;
-                console.log("IndexedDB Upgrade Needed. Current version: " + e.oldVersion);
+                this.log("IndexedDB Upgrade Needed. Current version: " + e.oldVersion);
 
                 if (!db.objectStoreNames.contains('playlists')) {
                     db.createObjectStore('playlists', { keyPath: 'fileId' });
@@ -166,10 +189,15 @@ const JukeboxDB = {
                         store.createIndex('updatedAt', 'updatedAt', { unique: false });
                     }
                 }
+
+                if (!db.objectStoreNames.contains('logs')) {
+                    const store = db.createObjectStore('logs', { keyPath: 'id', autoIncrement: true });
+                    store.createIndex('timestamp', 'timestamp', { unique: false });
+                }
             };
 
             request.onerror = (e) => {
-                console.error("IndexedDB Open Error:", e);
+                this.error("IndexedDB Open Error:", e);
                 reject(new Error("IndexedDB open error"));
             };
 
@@ -177,16 +205,17 @@ const JukeboxDB = {
                 this.db = e.target.result;
                 // ストアとインデックスの最終チェック
                 const hasStore = this.db.objectStoreNames.contains('fileIds');
+                const hasLogsStore = this.db.objectStoreNames.contains('logs');
                 let hasIndex = false;
                 try {
                     hasIndex = hasStore && this.db.transaction(['fileIds'], 'readonly').objectStore('fileIds').indexNames.contains('updatedAt');
                 } catch (err) {
-                    console.warn("Check index error:", err);
+                    this.warn("Check index error:", err);
                 }
 
-                if (!hasStore || !hasIndex) {
-                    console.warn("DB schema incomplete (Store: " + hasStore + ", Index: " + hasIndex + "). Forcing upgrade...");
-                    const nextVer = Math.max(this.db.version + 1, 3);
+                if (!hasStore || !hasIndex || !hasLogsStore) {
+                    this.warn("DB schema incomplete. Forcing upgrade...");
+                    const nextVer = Math.max(this.db.version + 1, 4);
                     this.db.close();
                     this.db = null;
                     const req2 = indexedDB.open(this.dbName, nextVer);
@@ -201,6 +230,10 @@ const JukeboxDB = {
                             const s = ev.target.transaction.objectStore('fileIds');
                             if (!s.indexNames.contains('updatedAt')) s.createIndex('updatedAt', 'updatedAt', { unique: false });
                         }
+                        if (!db2.objectStoreNames.contains('logs')) {
+                            const s = db2.createObjectStore('logs', { keyPath: 'id', autoIncrement: true });
+                            s.createIndex('timestamp', 'timestamp', { unique: false });
+                        }
                     };
                     req2.onsuccess = (ev) => { this.db = ev.target.result; resolve(this.db); };
                     req2.onerror = () => reject(new Error("IndexedDB retry failed"));
@@ -209,6 +242,13 @@ const JukeboxDB = {
                 }
             };
         }), 10000, "DB Open");
+        
+        try {
+            this.db = await this.openPromise;
+            return this.db;
+        } finally {
+            this.openPromise = null;
+        }
     },
     async get(fileId) {
         try {
@@ -271,7 +311,7 @@ const JukeboxDB = {
 
             countRequest.onsuccess = () => {
                 if (countRequest.result > 2000) {
-                    console.log("Pruning fileId cache (count: " + countRequest.result + ")");
+                    this.log("Pruning fileId cache (count: " + countRequest.result + ")");
                     // 古い方から100件削除
                     const index = store.index('updatedAt');
                     const cursorRequest = index.openCursor(); // 昇順（古い順）
@@ -292,13 +332,262 @@ const JukeboxDB = {
         try {
             const db = await this.open();
             return new Promise((resolve) => {
-                const transaction = db.transaction(['playlists', 'fileIds'], 'readwrite');
+                const transaction = db.transaction(['playlists', 'fileIds', 'logs'], 'readwrite');
                 transaction.objectStore('playlists').clear();
                 transaction.objectStore('fileIds').clear();
+                transaction.objectStore('logs').clear();
                 transaction.oncomplete = () => resolve();
                 transaction.onerror = () => resolve();
             });
         } catch (e) { /* ignore */ }
+    },
+    // --- Logging Support ---
+    async saveLog(type, content) {
+        try {
+            const db = await this.open();
+            if (!db.objectStoreNames.contains('logs')) return;
+            const transaction = db.transaction(['logs'], 'readwrite');
+            transaction.objectStore('logs').add({
+                type,
+                content,
+                timestamp: Date.now()
+            });
+        } catch (e) { 
+            if (typeof Logger !== 'undefined' && Logger.originalConsole) {
+                Logger.originalConsole.error("saveLog error:", e);
+            }
+        }
+    },
+    async getLogs(limit = 2000) {
+        try {
+            const db = await this.open();
+            return new Promise((resolve) => {
+                const transaction = db.transaction(['logs'], 'readonly');
+                const store = transaction.objectStore('logs');
+                const index = store.index('timestamp');
+                const logs = [];
+                const request = index.openCursor(null, 'prev'); // 最新順
+                request.onsuccess = (e) => {
+                    const cursor = e.target.result;
+                    if (cursor && logs.length < limit) {
+                        logs.push(cursor.value);
+                        cursor.continue();
+                    } else {
+                        resolve(logs.reverse()); // 時系列（古い順）に戻す
+                    }
+                };
+                request.onerror = () => resolve([]);
+            });
+        } catch (e) { return []; }
+    },
+    async pruneLogs(daysToKeep = 7) {
+        try {
+            const db = await this.open();
+            const threshold = Date.now() - (daysToKeep * 24 * 60 * 60 * 1000);
+            const transaction = db.transaction(['logs'], 'readwrite');
+            const store = transaction.objectStore('logs');
+            const index = store.index('timestamp');
+            const range = IDBKeyRange.upperBound(threshold);
+            const request = index.openCursor(range);
+            request.onsuccess = (e) => {
+                const cursor = e.target.result;
+                if (cursor) {
+                    cursor.delete();
+                    cursor.continue();
+                }
+            };
+        } catch (e) { /* ignore */ }
+    }
+};
+
+/**
+ * --- Logger: Console Hooks & Export ---
+ */
+const Logger = {
+    buffer: [], // メモリ上のバッファ（DB保存前や失敗時の予備）
+    isLogging: false,
+    originalConsole: {
+        log: console.log,
+        warn: console.warn,
+        error: console.error
+    },
+    init() {
+        const self = this;
+        // console.log のフック
+        console.log = function() {
+            self.originalConsole.log.apply(console, arguments);
+            self.save('LOG', arguments);
+        };
+        // console.warn のフック
+        console.warn = function() {
+            self.originalConsole.warn.apply(console, arguments);
+            self.save('WARN', arguments);
+        };
+        // console.error のフック
+        console.error = function() {
+            self.originalConsole.error.apply(console, arguments);
+            self.save('ERROR', arguments);
+        };
+
+        // Window エラーの捕捉
+        window.addEventListener('error', (event) => {
+            self.save('EXCEPTION', [event.message, event.filename, event.lineno]);
+        });
+        
+        // v65: システムイベントの合言葉
+        window.addEventListener('visibilitychange', () => {
+            this.logDirect("SYSTEM", `Visibility changed to: ${document.visibilityState}`);
+        });
+        window.addEventListener('online', () => this.logDirect("SYSTEM", "Network: Online"));
+        window.addEventListener('offline', () => this.logDirect("SYSTEM", "Network: Offline"));
+
+        // 起動時のリフレッシュ（ローテーション）
+        setTimeout(() => JukeboxDB.pruneLogs(7), 5000);
+        
+        // 疎通確認のためのテストログ
+        this.logDirect("INFO", `[Logger] v65 Initialized at ${new Date().toISOString()}`);
+    },
+    // オーディオ要素の状態を監視
+    monitorAudio(audio) {
+        if (!audio || audio._loggingAdded) return;
+        audio._loggingAdded = true;
+        ['play', 'pause', 'stalled', 'waiting', 'playing', 'error'].forEach(evt => {
+            audio.addEventListener(evt, () => {
+                const label = audio.src ? audio.src.split('/').pop().substring(0, 30) : "no-src";
+                this.logDirect("AUDIO", `Event: ${evt} (src: ${label}, time: ${audio.currentTime.toFixed(1)}, state: ${audio.readyState})`);
+            });
+        });
+    },
+    // コンソールのフックを通さずに直接保存する（内部用）
+    logDirect(type, msg) {
+        this.saveToMemory(type, msg);
+        JukeboxDB.saveLog(type, msg);
+    },
+    saveToMemory(type, msg) {
+        this.buffer.push({
+            type,
+            content: msg,
+            timestamp: Date.now()
+        });
+        if (this.buffer.length > 500) this.buffer.shift(); // 最大500件保持
+    },
+    save(type, args) {
+        if (this.isLogging) return; // 再帰防止
+        this.isLogging = true;
+        try {
+            const msg = Array.from(args).map(arg => {
+                if (typeof arg === 'object') {
+                    try { return JSON.stringify(arg); } catch(e) { return String(arg); }
+                }
+                return String(arg);
+            }).join(' ');
+            
+            this.saveToMemory(type, msg);
+            JukeboxDB.saveLog(type, msg);
+        } catch(e) { 
+        } finally {
+            this.isLogging = false;
+        }
+    },
+    async export() {
+        updateStatus("Preparing logs...");
+        
+        // DBからログ取得（失敗しても続行）
+        let dbLogs = [];
+        let dbStatus = "Unknown";
+        try {
+            dbLogs = await JukeboxDB.getLogs(3000);
+            dbStatus = JukeboxDB.db ? "Connected" : "Disconnected";
+        } catch (e) {
+            dbStatus = "Error: " + e.message;
+        }
+
+        // メモリバッファとDBログを統合（重複はtimestampで見分けるが簡易的に結合）
+        // DBログの方が多いはずなので、メモリバッファにあってDBにないものを補完するイメージ
+        const combinedLogs = [...dbLogs];
+        const dbTimestamps = new Set(dbLogs.map(l => l.timestamp));
+        
+        this.buffer.forEach(ml => {
+            if (!dbTimestamps.has(ml.timestamp)) {
+                combinedLogs.push(ml);
+            }
+        });
+        
+        // 時系列でソート（古い順）
+        combinedLogs.sort((a, b) => a.timestamp - b.timestamp);
+
+        if (combinedLogs.length === 0) {
+            alert("No logs found in memory or DB.");
+            updateStatus("Ready");
+            return;
+        }
+
+        let body = `Jukebox Debug Logs\n`;
+        body += `Generated: ${new Date().toLocaleString()}\n`;
+        body += `App Version: ${APP_VERSION}\n`;
+        body += `DB Status: ${dbStatus}\n`;
+        body += `User Agent: ${navigator.userAgent}\n`;
+        body += `Log Count: ${combinedLogs.length} (Memory: ${this.buffer.length}, DB: ${dbLogs.length})\n`;
+        body += `----------------------------------------\n\n`;
+
+        combinedLogs.forEach(l => {
+            const time = new Date(l.timestamp).toISOString();
+            body += `[${time}] [${l.type}] ${l.content}\n`;
+        });
+
+        const filename = `jukebox_logs_${new Date().toISOString().split('T')[0]}.txt`;
+        const blob = new Blob([body], { type: 'text/plain' });
+        const file = new File([blob], filename, { type: 'text/plain' });
+
+        // 基本的なシェア情報
+        const shareData = {
+            title: 'Jukebox Logs',
+            text: body.substring(0, 4000) // 最初の4000文字をテキストとしても送信（ファイル未対応時用）
+        };
+
+        // ファイル共有がサポートされているか確認
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            try {
+                await navigator.share({
+                    ...shareData,
+                    files: [file]
+                });
+                updateStatus("Logs shared (with file).");
+            } catch (err) {
+                if (err.name !== 'AbortError') {
+                    this.error("File share failed:", err);
+                    this.tryTextShare(shareData, blob, filename);
+                }
+            }
+        } else {
+            // ファイル未対応の場合、テキストのみでのシェアを試みる
+            this.tryTextShare(shareData, blob, filename);
+        }
+    },
+    async tryTextShare(shareData, blob, filename) {
+        if (navigator.share) {
+            try {
+                await navigator.share(shareData);
+                updateStatus("Logs shared (text only).");
+            } catch (err) {
+                if (err.name !== 'AbortError') {
+                    this.fallbackDownload(blob, filename);
+                }
+            }
+        } else {
+            this.fallbackDownload(blob, filename);
+        }
+    },
+    fallbackDownload(blob, filename) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        updateStatus("Logs downloaded (Share API not supported).");
     }
 };
 
@@ -549,6 +838,7 @@ function updateStatus(msg) {
 
 // 1. 初期化
 async function initApp() {
+    Logger.init(); // ロガーを最速で初期化
     updateStatus("Loading Program...");
 
     // jsmediatags の読み込み待機
@@ -748,6 +1038,11 @@ async function initApp() {
                 location.reload();
             }
         };
+    }
+
+    const shareLogsBtn = document.getElementById('share-logs-btn');
+    if (shareLogsBtn) {
+        shareLogsBtn.onclick = () => Logger.export();
     }
 }
 
@@ -1842,6 +2137,7 @@ function startPlayback(index, url, cover, gen) {
     // 3. ブラウザのAudioタグにイベントをセット
     const audio = Amplitude.getAudio ? Amplitude.getAudio() : document.querySelector('audio');
     if (audio) {
+        Logger.monitorAudio(audio);
         audio.onended = () => {
             // 【重要】このイベントが発生した時の世代が、現在の世代と一致する場合のみ次へ
             if (playGeneration === gen) {
@@ -1866,6 +2162,7 @@ function startPlayback(index, url, cover, gen) {
         });
 
         navigator.mediaSession.setActionHandler('play', async () => {
+            console.log("[MediaSession] User clicked 'Play' from OS controls");
             try {
                 await Amplitude.play();
                 navigator.mediaSession.playbackState = "playing";
@@ -1874,6 +2171,7 @@ function startPlayback(index, url, cover, gen) {
             }
         });
         navigator.mediaSession.setActionHandler('pause', () => {
+            console.log("[MediaSession] User clicked 'Pause' from OS controls");
             try {
                 Amplitude.pause();
                 navigator.mediaSession.playbackState = "paused";
@@ -1882,6 +2180,7 @@ function startPlayback(index, url, cover, gen) {
             }
         });
         navigator.mediaSession.setActionHandler('previoustrack', () => {
+            console.log("[MediaSession] User clicked 'Previous' from OS controls");
             const prevIndex = findValidTrackIndex(currentTrackIndex - 1, -1);
             if (prevIndex !== -1) {
                 playWithAmplitude(prevIndex);
@@ -1890,7 +2189,10 @@ function startPlayback(index, url, cover, gen) {
                 playWithAmplitude(0);
             }
         });
-        navigator.mediaSession.setActionHandler('nexttrack', () => { playNextTrack(); });
+        navigator.mediaSession.setActionHandler('nexttrack', () => { 
+            console.log("[MediaSession] User clicked 'Next' from OS controls");
+            playNextTrack(); 
+        });
     }
 
     // --- UI更新 ---
