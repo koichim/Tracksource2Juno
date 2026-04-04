@@ -301,7 +301,7 @@ for a_chart in charts:
     
     prev_chart_year = the_chart_year
 
-if the_chart_year == this_year or the_chart_year == this_year-1:
+if the_chart_year == this_year or the_chart_year == this_year-1 or len(charts) == 0:
     print("******* sftp.put my_mp3_tracks.json to SPPD *******")
     my_mp3_tracks = {"date": f"{datetime.datetime.now().year}-{datetime.datetime.now().month}-{datetime.datetime.now().day}",
                     "mp3_tracks":[]}
