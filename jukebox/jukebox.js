@@ -4,6 +4,7 @@ const SCOPES = 'https://www.googleapis.com/auth/drive.readonly';
 
 
 let tokenClient, gapiInited = false, gisInited = false;
+let discoveryStarted = false; // v62: サイレントリフレッシュ時の二重走査防止用
 let currentPlaylist = [], currentTrackIndex = -1, currentYearName = "";
 let currentBlobUrl = null, isLoadingTrack = false;
 let nextTrackIndex = -1;
@@ -13,7 +14,7 @@ let isPrefetching = false;
 let isShuffleOn = false;
 let isRepeatOn = false;
 let playGeneration = 0; // 世代管理：古い再生予約をキャンセルするため
-const APP_VERSION = "v61"; // プロダクション用バージョン
+const APP_VERSION = "v62"; // プロダクション用バージョン
 let currentPlaylistDate = ""; // v23: 現在のリストの日付
 let currentIsIncomplete = false; // v25: 現在のリストが未完成か
 const REFLECTION_TIME_DAYS = 15; // v35: 15日間
@@ -410,6 +411,27 @@ setInterval(syncUI, 200);
 document.addEventListener('visibilitychange', syncUI);
 window.addEventListener('focus', syncUI);
 
+/**
+ * トークンの有効期限をチェックし、必要であればサイレントリフレッシュを行う (v62)
+ */
+function checkTokenExpiry() {
+    const storedToken = localStorage.getItem('gdrive_token');
+    if (!storedToken || !tokenClient) return;
+
+    try {
+        const tokenData = JSON.parse(storedToken);
+        const now = new Date().getTime();
+        // 期限の10分前（600,000ms）を切っていたらリフレッシュ
+        if (tokenData.expires_at && (tokenData.expires_at - now) < 600000) {
+            console.log("[Auth] Token is expiring soon. Triggering silent refresh...");
+            tokenClient.requestAccessToken({ prompt: '' });
+        }
+    } catch (e) {
+        console.error("[Auth] checkTokenExpiry error:", e);
+    }
+}
+setInterval(checkTokenExpiry, 60000); // 1分ごとにチェック
+
 const authBtn = document.getElementById('auth_btn');
 const selector = document.getElementById('playlist_selector');
 const customSelectContainer = document.getElementById('custom_select_container');
@@ -504,7 +526,7 @@ async function initApp() {
                         console.log("Player state changed to:", state);
                     }
                 }
-                // v61: song_ended コールバックを削除。
+                // v62: song_ended コールバックを削除。
                 // ネイティブ audio.onended（世代チェック付き）と監視タイマーに一本化することで、
                 // 二重発火によるデッドロックを防止する。
             }
@@ -535,10 +557,24 @@ async function initApp() {
                     access_token: resp.access_token,
                     expires_at: expiresAt
                 }));
+                gapi.client.setToken({ access_token: resp.access_token });
 
-                authBtn.innerText = "Loading DJ charts...";
-                authBtn.disabled = true;
-                await startDiscovery();
+                if (!discoveryStarted) {
+                    discoveryStarted = true;
+                    authBtn.innerText = "Loading DJ charts...";
+                    authBtn.disabled = true;
+                    await startDiscovery();
+                } else {
+                    console.log("[Auth] Token refreshed silently.");
+                }
+            } else if (resp.error) {
+                console.error("[Auth] Token callback error:", resp.error);
+                if (resp.error === 'interaction_required') {
+                    // サイレントリフレッシュ失敗時は再認証を促す
+                    authBtn.style.display = 'block';
+                    authBtn.disabled = false;
+                    authBtn.innerText = "Re-Auth (Silent Refresh Failed)";
+                }
             }
         }
     });
@@ -551,6 +587,7 @@ async function initApp() {
         // 有効期限の5分前までを「有効」と見なす
         if (tokenData.access_token && tokenData.expires_at > now + 300000) {
             console.log("Using stored token");
+            discoveryStarted = true; // キャッシュから開始するのでフラグを立てる
             gapi.client.setToken({ access_token: tokenData.access_token });
             authBtn.innerText = "Loading DJ charts...";
             authBtn.disabled = true;
@@ -1476,9 +1513,9 @@ async function prefetchNextTrack(currentIndex) {
 }
 
 // --- 再生制御の統合ヘルパー ---
-let isNextTrackPending = false; // v61: 二重呼び出し防止フラグ
+let isNextTrackPending = false; // v62: 二重呼び出し防止フラグ
 function playNextTrack() {
-    // v61: 二重呼び出し防止（ネイティブonendedと監視タイマーの競合対策）
+    // v62: 二重呼び出し防止（ネイティブonendedと監視タイマーの競合対策）
     if (isNextTrackPending) {
         console.warn("playNextTrack: Already pending. Ignoring duplicate call.");
         return;
