@@ -15,7 +15,7 @@ let isPrefetching = false;
 let isShuffleOn = false;
 let isRepeatOn = false;
 let playGeneration = 0; // 世代管理：古い再生予約をキャンセルするため
-const APP_VERSION = "v68"; // プロダクション用バージョン
+const APP_VERSION = "v69"; // プロダクション用バージョン
 let currentPlaylistDate = ""; // v23: 現在のリストの日付
 let currentIsIncomplete = false; // v25: 現在のリストが未完成か
 const REFLECTION_TIME_DAYS = 15; // v35: 15日間
@@ -1562,6 +1562,7 @@ selector.onchange = async (e) => {
             .replace(/[\s🚧👷]+$/, "");
 
         const nowMs = Date.now();
+        const isFavoritesFile = selectedOpt && selectedOpt.dataset.fileName ? /favorites/i.test(selectedOpt.dataset.fileName) : false;
         const hasRecentAdditions = newChart.some(t => t && t.addedAt && (nowMs - t.addedAt) < REFLECTION_TIME_MS);
         const uAt = cached ? (cached.updatedAt || 0) : 0;
         const keepCache = isFavoritesFile || newIsIncomplete || hasRecentAdditions || ((nowMs - uAt) < REFLECTION_TIME_MS);
