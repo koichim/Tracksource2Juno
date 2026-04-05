@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jukebox-cache-v69';
+const CACHE_NAME = 'jukebox-cache-v78';
 const ASSETS_TO_CACHE = [
   './jukebox.html',
   './jukebox.css',
@@ -48,15 +48,22 @@ self.addEventListener('fetch', event => {
     return; // Let browser handle it
   }
 
+  // v75: GETのみをキャッシュ対象とし、Google API等の外部ドメインやPOST通信を除外する
+  if (event.request.method !== 'GET' || !event.request.url.startsWith(self.location.origin)) {
+    return;
+  }
+
   // Network-first strategy for app shell
   event.respondWith(
     fetch(event.request)
       .then(response => {
         // もしネットワークが成功したらキャッシュに保存して返す
-        const clonedResponse = response.clone();
-        caches.open(CACHE_NAME).then(cache => {
-          cache.put(event.request, clonedResponse);
-        });
+        if (response.status === 200) {
+          const clonedResponse = response.clone();
+          caches.open(CACHE_NAME).then(cache => {
+            cache.put(event.request, clonedResponse);
+          });
+        }
         return response;
       })
       .catch(() => {

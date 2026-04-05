@@ -5,6 +5,7 @@ const SCOPES = 'https://www.googleapis.com/auth/drive.readonly';
 
 let tokenClient, gapiInited = false, gisInited = false;
 let tokenResolve, tokenReject; // v67: Token refresh Promise state
+let tokenIsMandatory = false;  // v73: 期限切れでの更新なら真、予備の更新なら偽
 let discoveryStarted = false; // v62: サイレントリフレッシュ時の二重走査防止用
 let currentPlaylist = [], currentTrackIndex = -1, currentYearName = "";
 let currentBlobUrl = null, isLoadingTrack = false;
@@ -15,7 +16,7 @@ let isPrefetching = false;
 let isShuffleOn = false;
 let isRepeatOn = false;
 let playGeneration = 0; // 世代管理：古い再生予約をキャンセルするため
-const APP_VERSION = "v69"; // プロダクション用バージョン
+const APP_VERSION = "v78"; // プロダクション用バージョン
 let currentPlaylistDate = ""; // v23: 現在のリストの日付
 let currentIsIncomplete = false; // v25: 現在のリストが未完成か
 const REFLECTION_TIME_DAYS = 15; // v35: 15日間
@@ -331,6 +332,9 @@ const JukeboxDB = {
     },
     async clearAll() {
         try {
+            // v75: ログイン情報もクリアして再認証を容易にする
+            localStorage.removeItem('gdrive_token');
+            
             const db = await this.open();
             return new Promise((resolve) => {
                 const transaction = db.transaction(['playlists', 'fileIds', 'logs'], 'readwrite');
@@ -707,36 +711,40 @@ window.addEventListener('focus', syncUI);
 /**
  * トークンの有効期限をチェックし、必要であればサイレントリフレッシュを行う (v63: 非同期対応)
  */
-async function ensureValidToken() {
+async function ensureValidToken(isBackground = false) {
     const storedToken = localStorage.getItem('gdrive_token');
     const now = Date.now();
     let needsRefresh = false;
 
     if (!storedToken) {
         needsRefresh = true;
+        tokenIsMandatory = true;
     } else {
         try {
             const tokenData = JSON.parse(storedToken);
             const remainingMs = tokenData.expires_at - now;
-            const remainingSec = Math.round(remainingMs / 1000);
             
-            // 5分前（300,000ms）を切っていたら更新対象
-            if (!tokenData.expires_at || remainingMs < 300000) {
+            if (!tokenData.expires_at || remainingMs <= 0) {
                 needsRefresh = true;
+                tokenIsMandatory = true;
+            } else if (remainingMs < 300000) {
+                // 本番設定: 残り5分を切ったら更新（予備の更新なので mandatory ではない）
+                needsRefresh = true;
+                tokenIsMandatory = false;
             }
         } catch (e) {
             console.error("[Auth] Failed to parse stored token:", e);
             needsRefresh = true;
+            tokenIsMandatory = true;
         }
     }
 
-    if (needsRefresh && tokenClient) {
+    if (needsRefresh) {
         console.log("[Auth] Token invalid or expiring soon. Refreshing...");
-        updateStatus("Refreshing authorization...");
         
         // すでに待機中ならそれを待つ
         if (tokenResolve) {
-            await new Promise((res, rej) => {
+            await new Promise((res) => {
                 const check = () => {
                     if (!tokenResolve) res();
                     else setTimeout(check, 100);
@@ -746,25 +754,85 @@ async function ensureValidToken() {
             return;
         }
 
-        return new Promise((resolve, reject) => {
-            tokenResolve = resolve;
-            tokenReject = reject;
-            tokenClient.requestAccessToken({ prompt: '' });
-            // 安全のため30秒でタイムアウト
-            setTimeout(() => {
-                if (tokenResolve) {
-                    tokenReject(new Error("Token Refresh Timeout"));
+        const storedTokenData = JSON.parse(localStorage.getItem('gdrive_token') || '{}');
+        const refreshToken = storedTokenData.refresh_token;
+
+        if (refreshToken) {
+            updateStatus("Refreshing authorization via proxy...");
+            return new Promise((resolve, reject) => {
+                tokenResolve = resolve;
+                tokenReject = reject;
+                
+                fetch('./auth_proxy.cgi', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'refresh', refresh_token: refreshToken })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.access_token) {
+                        const now = Date.now();
+                        const expiresAt = now + (data.expires_in * 1000);
+                        localStorage.setItem('gdrive_token', JSON.stringify({
+                            access_token: data.access_token,
+                            refresh_token: refreshToken, // 引き継ぐ
+                            expires_at: expiresAt
+                        }));
+                        gapi.client.setToken({ access_token: data.access_token });
+                        console.log(`[Auth] Token refreshed successfully via proxy. Valid for ${data.expires_in}s.`);
+                        if (tokenResolve) tokenResolve();
+                    } else {
+                        throw new Error(data.error || "Failed to refresh token via proxy");
+                    }
+                })
+                .catch(err => {
+                    console.error("[Auth] Proxy refresh failed:", err);
+                    if (tokenIsMandatory) {
+                        if (tokenReject) tokenReject(err);
+                        updateStatus("Auth failed. Re-authentication required.");
+                    } else {
+                        console.warn("[Auth] Pre-emptive refresh via proxy failed, continuing with current token.");
+                        if (tokenResolve) tokenResolve();
+                    }
+                })
+                .finally(() => {
                     tokenResolve = null;
                     tokenReject = null;
-                }
-            }, 30000);
-        });
+                });
+            });
+        } else {
+            // リフレッシュトークンがない場合は、新規認可が必要
+            if (tokenIsMandatory) {
+                updateStatus("Authentication required.");
+                authBtn.style.display = 'block';
+                authBtn.disabled = false;
+                throw new Error("No refresh token available");
+            } else {
+                console.warn("[Auth] Refresh needed but no refresh token. Continuing with current token.");
+            }
+        }
+    }
+}
+
+/**
+ * v72: ヒント（hint）用のユーザー情報を取得
+ */
+async function fetchUserInfo() {
+    try {
+        if (!gapi.client.drive) return;
+        const res = await gapi.client.drive.about.get({ fields: 'user' });
+        if (res.result.user && res.result.user.emailAddress) {
+            localStorage.setItem('gdrive_user_email', res.result.user.emailAddress);
+            console.log("[Auth] Stored user email for hint:", res.result.user.emailAddress);
+        }
+    } catch (e) {
+        console.warn("[Auth] Failed to fetch user info for hint:", e);
     }
 }
 
 async function checkTokenExpiry() {
     try {
-        await ensureValidToken();
+        await ensureValidToken(true);
     } catch (e) {
         console.error("[Auth] checkTokenExpiry failed during background check:", e);
     }
@@ -775,7 +843,7 @@ setInterval(checkTokenExpiry, 60000); // 1分ごとにチェック
  * GAPIリクエストを認証状態で実行し、401エラー時は自動リフレッシュして1回リトライする (v63)
  */
 async function authorizedRequest(requestFunc) {
-    await ensureValidToken();
+    await ensureValidToken(true);
     try {
         const res = await requestFunc();
         return res;
@@ -784,7 +852,7 @@ async function authorizedRequest(requestFunc) {
         if (err.status === 401 || (err.result && err.result.error && err.result.error.code === 401)) {
             console.warn("[Auth] 401 Unauthorized detected. Retrying with fresh token...");
             localStorage.removeItem('gdrive_token');
-            await ensureValidToken();
+            await ensureValidToken(true);
             return await requestFunc();
         }
         console.error(`[Auth] Request failed (Code: ${err.status || 'unknown'}):`, err);
@@ -907,55 +975,66 @@ async function initApp() {
         updateStatus("Google API Error (Check Console)");
     }
 
-    tokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: CLIENT_ID, scope: SCOPES,
+    tokenClient = google.accounts.oauth2.initCodeClient({
+        client_id: CLIENT_ID, 
+        scope: SCOPES,
+        ux_mode: 'popup',
+        access_type: 'offline', // リフレッシュトークンを取得するために必須
         callback: async (resp) => {
-            if (resp.access_token) {
-                // トークンと有効期限を保存
-                const now = new Date().getTime();
-                const expiresAt = now + (resp.expires_in * 1000);
-                localStorage.setItem('gdrive_token', JSON.stringify({
-                    access_token: resp.access_token,
-                    expires_at: expiresAt
-                }));
-                gapi.client.setToken({ access_token: resp.access_token });
-
-                if (tokenResolve) {
-                    tokenResolve();
-                    tokenResolve = null;
-                    tokenReject = null;
-                }
-
-                if (!discoveryStarted) {
-                    discoveryStarted = true;
-                    authBtn.innerText = "Loading DJ charts...";
-                    authBtn.disabled = true;
-                    await startDiscovery();
-                } else {
-                    console.log(`[Auth] Token refreshed successfully. Valid for ${resp.expires_in}s (Expires at: ${new Date(expiresAt).toLocaleTimeString()}).`);
-                    updateStatus("Authorization refreshed.");
-                    setTimeout(() => {
-                        const audio = getRealAudio();
-                        if (audio && !audio.paused && currentTrackIndex >= 0 && currentPlaylist[currentTrackIndex]) {
-                            updateStatus(`Playing: ${currentPlaylist[currentTrackIndex].title}`);
-                        } else {
-                            updateStatus("Ready");
+            if (resp.code) {
+                updateStatus("Exchanging code for tokens...");
+                try {
+                    const res = await fetch('./auth_proxy.cgi', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'exchange', code: resp.code })
+                    });
+                    const data = await res.json();
+                    
+                    if (data.access_token) {
+                        const now = Date.now();
+                        const expiresAt = now + (data.expires_in * 1000);
+                        localStorage.setItem('gdrive_token', JSON.stringify({
+                            access_token: data.access_token,
+                            refresh_token: data.refresh_token, // リフレッシュトークンを保存
+                            expires_at: expiresAt
+                        }));
+                        gapi.client.setToken({ access_token: data.access_token });
+                        
+                        if (tokenResolve) {
+                            tokenResolve();
+                            tokenResolve = null;
+                            tokenReject = null;
                         }
-                    }, 2000);
+
+                        if (!discoveryStarted) {
+                            discoveryStarted = true;
+                            authBtn.disabled = true;
+                            fetchUserInfo();
+                            await startDiscovery();
+                        } else {
+                            console.log(`[Auth] Initial authorization successful. Valid for ${data.expires_in}s.`);
+                            updateStatus("Authorization fixed.");
+                            fetchUserInfo();
+                        }
+                    } else {
+                        throw new Error(data.error || "Failed to exchange code");
+                    }
+                } catch (e) {
+                    console.error("[Auth] Code exchange failed:", e);
+                    updateStatus("Auth error: " + e.message);
+                    if (tokenReject) {
+                        tokenReject(e);
+                        tokenResolve = null;
+                        tokenReject = null;
+                    }
                 }
             } else if (resp.error) {
-                console.error("[Auth] Token callback returned error:", resp.error, resp.error_description || "");
+                console.error("[Auth] Code client returned error:", resp.error);
                 if (tokenReject) {
                     tokenReject(new Error(resp.error));
                     tokenResolve = null;
                     tokenReject = null;
-                }
-                if (resp.error === 'interaction_required') {
-                    // サイレントリフレッシュ失敗時は再認証を促す
-                    authBtn.style.display = 'block';
-                    authBtn.disabled = false;
-                    authBtn.innerText = "Re-Auth (Silent Refresh Failed)";
-                    updateStatus("Auth failed. Interaction required.");
                 }
             }
         }
@@ -966,11 +1045,11 @@ async function initApp() {
     if (storedToken) {
         const tokenData = JSON.parse(storedToken);
         const now = new Date().getTime();
-        // 有効期限の5分前までを「有効」と見なす
+        // 有効期限内ならそのまま開始 (v75: リフレッシュトークンがあることが前提)
         if (tokenData.access_token && tokenData.expires_at > now + 300000) {
             const remainingSec = Math.round((tokenData.expires_at - now) / 1000);
             console.log(`[Auth] Using stored token (${remainingSec}s remaining).`);
-            discoveryStarted = true; // キャッシュから開始するのでフラグを立てる
+            discoveryStarted = true; // キャッシュから開始
             gapi.client.setToken({ access_token: tokenData.access_token });
             authBtn.innerText = "Loading DJ charts...";
             authBtn.disabled = true;
@@ -1056,7 +1135,7 @@ async function initApp() {
     }
 }
 
-authBtn.onclick = () => tokenClient.requestAccessToken({ prompt: '' });
+authBtn.onclick = () => tokenClient.requestCode();
 
 // 2. フォルダスキャン
 async function startDiscovery() {
