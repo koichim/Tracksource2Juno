@@ -11,8 +11,8 @@
 
     <!-- AmplitudeJS Library -->
     <script src="https://cdn.jsdelivr.net/npm/amplitudejs@5.3.2/dist/amplitude.min.js"></script>
-    <link rel="stylesheet" href="jukebox.css?v=66">
-    <link rel="manifest" href="manifest.json?v=66">    <meta name="theme-color" content="#141920">
+    <link rel="stylesheet" href="jukebox.css?v=68">
+    <link rel="manifest" href="manifest.json?v=68">    <meta name="theme-color" content="#141920">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -123,7 +123,7 @@
         </div>
         <div id="app-version-footer"
             style="font-size:11px; color:#777; text-align:center; padding:15px 0 40px 0; background-color: #111; width: 100%; border-top: 1px solid #222;">
-            <div id="app-version" style="margin-bottom: 8px;">v66</div>
+            <div id="app-version" style="margin-bottom: 8px;">v68</div>
             <div>
                 <span id="clear-cache-btn"
                     style="font-size: 11px; color: #55b560; cursor: pointer; text-decoration: underline; font-weight: bold; background: #1a1f26; padding: 6px 12px; border-radius: 4px; border: 1px solid #333; display: inline-block;">[Clear
@@ -138,7 +138,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js"></script>
     <script src="https://apis.google.com/js/api.js"></script>
     <script src="https://accounts.google.com/gsi/client"></script>
-    <script src="jukebox.js?v=66"></script>
+    <script src="jukebox.js?v=68"></script>
 
     <script>
         // togglePlaylistView は jukebox.js 側で window.togglePlaylistView として定義されています
@@ -161,7 +161,7 @@
 
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./sw.js?v=66', { scope: './' })
+                navigator.serviceWorker.register('./sw.js?v=68', { scope: './' })
                     .then(reg => console.log('Service Worker registered with scope:', reg.scope))
                     .catch(err => console.error('Service Worker registration failed', err));
             });

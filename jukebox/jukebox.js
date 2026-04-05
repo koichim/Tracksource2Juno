@@ -4,6 +4,7 @@ const SCOPES = 'https://www.googleapis.com/auth/drive.readonly';
 
 
 let tokenClient, gapiInited = false, gisInited = false;
+let tokenResolve, tokenReject; // v67: Token refresh Promise state
 let discoveryStarted = false; // v62: サイレントリフレッシュ時の二重走査防止用
 let currentPlaylist = [], currentTrackIndex = -1, currentYearName = "";
 let currentBlobUrl = null, isLoadingTrack = false;
@@ -14,7 +15,7 @@ let isPrefetching = false;
 let isShuffleOn = false;
 let isRepeatOn = false;
 let playGeneration = 0; // 世代管理：古い再生予約をキャンセルするため
-const APP_VERSION = "v66"; // プロダクション用バージョン
+const APP_VERSION = "v68"; // プロダクション用バージョン
 let currentPlaylistDate = ""; // v23: 現在のリストの日付
 let currentIsIncomplete = false; // v25: 現在のリストが未完成か
 const REFLECTION_TIME_DAYS = 15; // v35: 15日間
@@ -48,7 +49,7 @@ const MetadataQueue = {
                     const res = await task();
                     resolve(res);
                 } catch (e) {
-                    console.error("MetadataQueue task error:", e);
+                    console.error("[MetadataQueue] Task execution failed:", e);
                     reject(e);
                 } finally {
                     this.running--;
@@ -535,7 +536,10 @@ const Logger = {
             body += `[${time}] [${l.type}] ${l.content}\n`;
         });
 
-        const filename = `jukebox_logs_${new Date().toISOString().split('T')[0]}.txt`;
+        const now = new Date();
+        const dateStr = now.toISOString().split('T')[0];
+        const timeStr = now.toLocaleTimeString('ja-JP', { hour12: false }).replace(/:/g, '-');
+        const filename = `jukebox_logs_${dateStr}_${timeStr}.txt`;
         const blob = new Blob([body], { type: 'text/plain' });
         const file = new File([blob], filename, { type: 'text/plain' });
 
@@ -691,7 +695,7 @@ const syncUI = () => {
         const appVersionEl = document.getElementById('app-version');
         if (appVersionEl) appVersionEl.innerText = version;
     } catch (err) {
-        console.error("syncUI Error:", err);
+        console.error("[UI] syncUI failed to update playback state:", err);
     }
 };
 
@@ -713,11 +717,15 @@ async function ensureValidToken() {
     } else {
         try {
             const tokenData = JSON.parse(storedToken);
+            const remainingMs = tokenData.expires_at - now;
+            const remainingSec = Math.round(remainingMs / 1000);
+            
             // 5分前（300,000ms）を切っていたら更新対象
-            if (!tokenData.expires_at || (tokenData.expires_at - now) < 300000) {
+            if (!tokenData.expires_at || remainingMs < 300000) {
                 needsRefresh = true;
             }
         } catch (e) {
+            console.error("[Auth] Failed to parse stored token:", e);
             needsRefresh = true;
         }
     }
@@ -758,7 +766,7 @@ async function checkTokenExpiry() {
     try {
         await ensureValidToken();
     } catch (e) {
-        console.error("[Auth] checkTokenExpiry error:", e);
+        console.error("[Auth] checkTokenExpiry failed during background check:", e);
     }
 }
 setInterval(checkTokenExpiry, 60000); // 1分ごとにチェック
@@ -779,6 +787,7 @@ async function authorizedRequest(requestFunc) {
             await ensureValidToken();
             return await requestFunc();
         }
+        console.error(`[Auth] Request failed (Code: ${err.status || 'unknown'}):`, err);
         throw err;
     }
 }
@@ -894,8 +903,8 @@ async function initApp() {
         await gapi.client.load('https://www.googleapis.com/discovery/v1/apis/drive/v3/rest');
         gapiInited = true;
     } catch (e) {
-        console.error("GAPI Error", e);
-        updateStatus("Google API Error");
+        console.error("[GAPI] Initialization or client load failed:", e);
+        updateStatus("Google API Error (Check Console)");
     }
 
     tokenClient = google.accounts.oauth2.initTokenClient({
@@ -923,7 +932,7 @@ async function initApp() {
                     authBtn.disabled = true;
                     await startDiscovery();
                 } else {
-                    console.log("[Auth] Token refreshed successfully.");
+                    console.log(`[Auth] Token refreshed successfully. Valid for ${resp.expires_in}s (Expires at: ${new Date(expiresAt).toLocaleTimeString()}).`);
                     updateStatus("Authorization refreshed.");
                     setTimeout(() => {
                         const audio = getRealAudio();
@@ -935,7 +944,7 @@ async function initApp() {
                     }, 2000);
                 }
             } else if (resp.error) {
-                console.error("[Auth] Token callback error:", resp.error);
+                console.error("[Auth] Token callback returned error:", resp.error, resp.error_description || "");
                 if (tokenReject) {
                     tokenReject(new Error(resp.error));
                     tokenResolve = null;
@@ -959,7 +968,8 @@ async function initApp() {
         const now = new Date().getTime();
         // 有効期限の5分前までを「有効」と見なす
         if (tokenData.access_token && tokenData.expires_at > now + 300000) {
-            console.log("Using stored token");
+            const remainingSec = Math.round((tokenData.expires_at - now) / 1000);
+            console.log(`[Auth] Using stored token (${remainingSec}s remaining).`);
             discoveryStarted = true; // キャッシュから開始するのでフラグを立てる
             gapi.client.setToken({ access_token: tokenData.access_token });
             authBtn.innerText = "Loading DJ charts...";
@@ -1063,8 +1073,8 @@ async function startDiscovery() {
             updateStatus("Error: music_backup folder not found");
         }
     } catch (e) {
-        console.error("Start Discovery Error:", e);
-        updateStatus("Discovery Error (Check Network)");
+        console.error("[Discovery] Failed to find 'music_backup' root folder:", e);
+        updateStatus("Discovery Error (Check Network/Auth)");
     }
 }
 
@@ -1308,7 +1318,7 @@ async function findTracksFolder(yearId, yearName) {
                 const isUpdatedCheckNeeded = isFavoritesFile || cached.isIncomplete;
                 if (!isUpdatedCheckNeeded) {
                     // 通常のチャートは一度名前が決まれば再取得不要
-                    console.log("Using cached label (skipping update):", cached.label);
+
                     continue;
                 }
 
@@ -1346,7 +1356,7 @@ async function findTracksFolder(yearId, yearName) {
                             break;
                         } catch (e) {
                             if (i === maxRetries) {
-                                console.error(`[Give up] Background fetch failed after ${maxRetries} attempts for: ${file.name}`);
+                                console.error(`[Give up] Background fetch failed after ${maxRetries} attempts for file: ${file.name} (ID: ${file.id})`);
                                 return;
                             }
                             console.warn(`[Retry] Background fetch timeout, retrying (${i}/${maxRetries}) for: ${file.name}`);
@@ -1436,7 +1446,7 @@ async function findTracksFolder(yearId, yearName) {
                         // console.log("Completed background metadata fetch:", displayLabel);
                     }
                 } catch (err) {
-                    console.error("Error background renaming for:", file.name, err);
+                    console.error(`[Metadata] Failed to process background update for '${file.name}':`, err);
                 } finally {
                     // console.log("Background task finished (released queue):", file.name);
                 }
@@ -1468,7 +1478,7 @@ selector.onchange = async (e) => {
     // 1. キャッシュから即座に復元
     const cached = await JukeboxDB.get(fileId);
     if (cached && cached.chart) {
-        console.log("Loading playlist from cache...");
+
         currentPlaylist = cached.chart;
         currentPlaylistDate = cached.playlistDate || "";
         currentIsIncomplete = cached.isIncomplete || false;
@@ -1559,7 +1569,7 @@ selector.onchange = async (e) => {
         await JukeboxDB.set(fileId, { label, chart: newChart, playlistDate: newDate, isIncomplete: newIsIncomplete, metaOnly: !keepCache, updatedAt: uAt });
 
     } catch (err) {
-        console.error("Error background loading DJ Chart:", err);
+        console.error(`[Playlist] Error loading DJ Chart (FileID: ${fileId}):`, err);
     }
 
     updateStatus("Ready");
@@ -1875,8 +1885,8 @@ async function prefetchNextTrack(currentIndex) {
             }, 3000);
         }
     } catch (e) {
-        console.error("Prefetch process error:", e);
-        updateStatus(`⚠️ Pre-fetch error: ${e.message || e}`);
+        console.error(`[Prefetch] Failed to prefetch track '${track ? track.title : 'unknown'}':`, e);
+        updateStatus(`⚠️ Pre-fetch error: ${track ? track.title : 'unknown'}`);
         setTimeout(() => {
             const audio = getRealAudio();
             if (audio && !audio.paused && currentTrackIndex >= 0 && currentPlaylist[currentTrackIndex]) {
@@ -1985,7 +1995,7 @@ async function playWithAmplitude(index) {
 
         // --- 2. 先読み(Prefetch)済みのURLがあるかチェック ---
         if (index === nextTrackIndex && nextBlobUrl) {
-            console.log("Using prefetched data for:", track.title);
+
 
             if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
             currentBlobUrl = nextBlobUrl;
@@ -2026,7 +2036,7 @@ async function playWithAmplitude(index) {
                     await JukeboxDB.setFileId(fileName, targetId);
                 }
             } catch (err) {
-                console.error("Search failed or timed out:", err);
+                console.error(`[Search] File query failed for '${fileName}':`, err);
                 updateStatus("Search Timeout. Retrying...");
                 // 1回だけリトライ
                 await new Promise(r => setTimeout(r, 2000));
@@ -2034,7 +2044,7 @@ async function playWithAmplitude(index) {
                     targetId = await withTimeout(searchDrive(), 15000, "Search Drive (Deep) " + fileName);
                     if (targetId) await JukeboxDB.setFileId(fileName, targetId);
                 } catch (e2) {
-                    console.error("Retry failed:", e2);
+                    console.error(`[Search] Retry also failed for '${fileName}':`, e2);
                 }
             }
         }
@@ -2054,7 +2064,7 @@ async function playWithAmplitude(index) {
                 // v50: ダウンロードにもタイムアウト (30秒)
                 response = await Promise.race([fetchFile(), downloadTimeout(30000)]);
             } catch (err) {
-                console.error("Download failed or timed out:", err);
+                console.error(`[Download] File download failed for '${track.title}' (FileID: ${targetId}):`, err);
                 updateStatus(`Download Timeout: ${track.title}`);
                 isLoadingTrack = false;
                 return;
