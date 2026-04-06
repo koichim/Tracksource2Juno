@@ -16,8 +16,8 @@ let isPrefetching = false;
 let isShuffleOn = false;
 let isRepeatOn = false;
 let playGeneration = 0; // 世代管理：古い再生予約をキャンセルするため
-let isInitAppDone = false; // v85: initAppの二重実行ガード
-const APP_VERSION = "v85"; // プロダクション用バージョン
+let isInitAppDone = false; // v86: initAppの二重実行ガード
+const APP_VERSION = "v86"; // プロダクション用バージョン
 let currentPlaylistDate = ""; // v23: 現在のリストの日付
 let currentIsIncomplete = false; // v25: 現在のリストが未完成か
 const REFLECTION_TIME_DAYS = 15; // v35: 15日間
@@ -772,7 +772,7 @@ async function ensureValidToken(isBackground = false, forceRefresh = false) {
                 tokenResolve = resolve;
                 tokenReject = reject;
                 
-                // v85: Proxy fetch retry
+                // v86: Proxy fetch retry
                 const fetchWithRetry = async (url, options, maxRetry = 3) => {
                     for (let i = 1; i <= maxRetry; i++) {
                         try {
@@ -1947,13 +1947,25 @@ async function prefetchNextTrack(currentIndex) {
         }
 
         if (targetId) {
-            // 3. バイナリデータを取得（バックアップ）（v63: 認証追加）
-            const response = await authorizedRequest(() => gapi.client.drive.files.get({ fileId: targetId, alt: 'media' }));
+            // 3. fetch API でバイナリ直接取得 (CPU/メモリ・スパイク対策)
+            const memBefore = performance.memory ? (performance.memory.usedJSHeapSize / 1024 / 1024).toFixed(1) : 'N/A';
+            const startMs = performance.now();
 
-            const str = response.body;
-            const buf = new Uint8Array(str.length);
-            for (let i = 0; i < str.length; i++) buf[i] = str.charCodeAt(i) & 0xff;
-            const blob = new Blob([buf], { type: 'audio/mpeg' });
+            const blob = await authorizedRequest(async () => {
+                const tokenData = JSON.parse(localStorage.getItem('gdrive_token'));
+                const res = await fetch(`https://www.googleapis.com/drive/v3/files/${targetId}?alt=media`, {
+                    headers: { 'Authorization': 'Bearer ' + tokenData.access_token }
+                });
+                if (!res.ok) {
+                    if (res.status === 401) throw { status: 401 };
+                    throw new Error(`Fetch failed with status: ${res.status}`);
+                }
+                return await res.blob();
+            });
+
+            const endMs = performance.now();
+            const memAfter = performance.memory ? (performance.memory.usedJSHeapSize / 1024 / 1024).toFixed(1) : 'N/A';
+            console.log(`[Performance] Fetch Prefetch taking ${Math.round(endMs - startMs)}ms. Heap: ${memBefore}MB -> ${memAfter}MB`);
 
             // 4. 古い先読みデータがあれば解放して更新
             if (nextBlobUrl) URL.revokeObjectURL(nextBlobUrl);
@@ -2173,28 +2185,36 @@ async function playWithAmplitude(index) {
             updateStatus(`Downloading: ${track.title}`);
 
             const fetchFile = async () => {
-                const response = await authorizedRequest(() => gapi.client.drive.files.get({ fileId: targetId, alt: 'media' }));
-                return response;
+                return await authorizedRequest(async () => {
+                    const tokenData = JSON.parse(localStorage.getItem('gdrive_token'));
+                    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${targetId}?alt=media`, {
+                        headers: { 'Authorization': 'Bearer ' + tokenData.access_token }
+                    });
+                    if (!res.ok) {
+                        if (res.status === 401) throw { status: 401 };
+                        throw new Error(`Fetch failed with status: ${res.status}`);
+                    }
+                    return await res.blob();
+                });
             };
 
             const downloadTimeout = (ms) => new Promise((_, reject) => setTimeout(() => reject(new Error("Download Timeout")), ms));
 
-            let response;
+            let blob;
+            const memBefore = performance.memory ? (performance.memory.usedJSHeapSize / 1024 / 1024).toFixed(1) : 'N/A';
+            const startMs = performance.now();
             try {
                 // v50: ダウンロードにもタイムアウト (30秒)
-                response = await Promise.race([fetchFile(), downloadTimeout(30000)]);
+                blob = await Promise.race([fetchFile(), downloadTimeout(30000)]);
             } catch (err) {
                 console.error(`[Download] File download failed for '${track.title}' (FileID: ${targetId}):`, err);
                 updateStatus(`Download Timeout: ${track.title}`);
                 isLoadingTrack = false;
                 return;
             }
-
-            // バイナリ変換処理
-            const str = response.body;
-            const buf = new Uint8Array(str.length);
-            for (let i = 0; i < str.length; i++) buf[i] = str.charCodeAt(i) & 0xff;
-            const blob = new Blob([buf], { type: 'audio/mpeg' });
+            const endMs = performance.now();
+            const memAfter = performance.memory ? (performance.memory.usedJSHeapSize / 1024 / 1024).toFixed(1) : 'N/A';
+            console.log(`[Performance] Fetch Playback taking ${Math.round(endMs - startMs)}ms. Heap: ${memBefore}MB -> ${memAfter}MB`);
 
             if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
             currentBlobUrl = URL.createObjectURL(blob);

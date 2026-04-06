@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jukebox-cache-v85';
+const CACHE_NAME = 'jukebox-cache-v86';
 const ASSETS_TO_CACHE = [
   './jukebox.html',
   './jukebox.css',
@@ -42,7 +42,7 @@ self.addEventListener('activate', event => {
 });
 
 self.addEventListener('fetch', event => {
-  // v85: プロキシ通信は Service Worker を完全にバイパスさせる（最優先）
+  // v86: プロキシ通信は Service Worker を完全にバイパスさせる（最優先）
   if (event.request.url.includes('auth_proxy.cgi')) {
     return;
   }
