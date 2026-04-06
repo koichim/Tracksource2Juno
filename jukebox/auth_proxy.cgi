@@ -23,11 +23,18 @@ def get_credentials():
     except Exception as e:
         respond_json({"error": "Failed to read secret file", "details": str(e)}, 500)
 
-def respond_json(data, status=200):
-    print("Content-Type: application/json")
-    print(f"Status: {status}")
+def respond_json(data, status_num=200):
+    status_map = {200: "200 OK", 400: "400 Bad Request", 405: "405 Method Not Allowed", 500: "500 Internal Server Error"}
+    status_text = status_map.get(status_num, f"{status_num} Unknown")
+    
+    print(f"Status: {status_text}")
+    print("Content-Type: application/json; charset=utf-8")
+    print("Cache-Control: no-cache, no-store, must-revalidate")
+    print("Pragma: no-cache")
+    print("Expires: 0")
     print("")
     print(json.dumps(data, indent=2))
+    sys.stdout.flush()
     sys.exit(0)
 
 def exchange_code(code, creds):

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jukebox-cache-v78';
+const CACHE_NAME = 'jukebox-cache-v85';
 const ASSETS_TO_CACHE = [
   './jukebox.html',
   './jukebox.css',
@@ -42,6 +42,11 @@ self.addEventListener('activate', event => {
 });
 
 self.addEventListener('fetch', event => {
+  // v85: プロキシ通信は Service Worker を完全にバイパスさせる（最優先）
+  if (event.request.url.includes('auth_proxy.cgi')) {
+    return;
+  }
+
   // Google API calls or Media files should not be cached by SW basic logic usually
   // But for the app shell, we want to serve from cache if offline
   if (event.request.url.includes('googleapis.com') || event.request.url.includes('google.com')) {

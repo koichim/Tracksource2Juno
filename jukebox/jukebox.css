@@ -678,6 +678,48 @@ button#auth_btn:hover {
 }
 
 /* 元のセレクトボックスを隠す */
-#playlist_selector {
-    display: none !important;
+/* 11. アプリバージョン・フッター (常に表示) */
+#app-version-footer {
+    font-size: 11px;
+    color: #777;
+    text-align: center;
+    padding: 15px 0 40px 0;
+    background-color: #111;
+    width: 100%;
+    max-width: 450px;
+    border-top: 1px solid #222;
+    margin: 0 auto;
+    box-sizing: border-box;
+}
+
+#app-version {
+    margin-bottom: 8px;
+}
+
+#clear-cache-btn, #share-logs-btn {
+    font-size: 11px;
+    cursor: pointer;
+    text-decoration: underline;
+    font-weight: bold;
+    background: #1a1f26;
+    padding: 6px 12px;
+    border-radius: 4px;
+    border: 1px solid #333;
+    display: inline-block;
+}
+
+#clear-cache-btn {
+    color: #55b560;
+}
+
+#share-logs-btn {
+    color: #4a9eff;
+    margin-left: 8px;
+}
+
+/* モバイル対応：プレイヤーが表示されている時は、プレイヤーと同じ幅にする */
+@media (max-width: 500px) {
+    #app-version-footer {
+        max-width: none;
+    }
 }

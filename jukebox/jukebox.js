@@ -16,7 +16,8 @@ let isPrefetching = false;
 let isShuffleOn = false;
 let isRepeatOn = false;
 let playGeneration = 0; // 世代管理：古い再生予約をキャンセルするため
-const APP_VERSION = "v78"; // プロダクション用バージョン
+let isInitAppDone = false; // v85: initAppの二重実行ガード
+const APP_VERSION = "v85"; // プロダクション用バージョン
 let currentPlaylistDate = ""; // v23: 現在のリストの日付
 let currentIsIncomplete = false; // v25: 現在のリストが未完成か
 const REFLECTION_TIME_DAYS = 15; // v35: 15日間
@@ -495,20 +496,20 @@ const Logger = {
         }
     },
     async export() {
-        updateStatus("Preparing logs...");
+        updateStatus("Gathering logs...");
         
         // DBからログ取得（失敗しても続行）
         let dbLogs = [];
         let dbStatus = "Unknown";
         try {
-            dbLogs = await JukeboxDB.getLogs(3000);
+            dbLogs = await JukeboxDB.getLogs(10000);
             dbStatus = JukeboxDB.db ? "Connected" : "Disconnected";
         } catch (e) {
             dbStatus = "Error: " + e.message;
         }
 
-        // メモリバッファとDBログを統合（重複はtimestampで見分けるが簡易的に結合）
-        // DBログの方が多いはずなので、メモリバッファにあってDBにないものを補完するイメージ
+        // メモリバッファとDBログを統合
+        updateStatus("Processing logs...");
         const combinedLogs = [...dbLogs];
         const dbTimestamps = new Set(dbLogs.map(l => l.timestamp));
         
@@ -518,7 +519,6 @@ const Logger = {
             }
         });
         
-        // 時系列でソート（古い順）
         combinedLogs.sort((a, b) => a.timestamp - b.timestamp);
 
         if (combinedLogs.length === 0) {
@@ -527,19 +527,22 @@ const Logger = {
             return;
         }
 
-        let body = `Jukebox Debug Logs\n`;
-        body += `Generated: ${new Date().toLocaleString()}\n`;
-        body += `App Version: ${APP_VERSION}\n`;
-        body += `DB Status: ${dbStatus}\n`;
-        body += `User Agent: ${navigator.userAgent}\n`;
-        body += `Log Count: ${combinedLogs.length} (Memory: ${this.buffer.length}, DB: ${dbLogs.length})\n`;
-        body += `----------------------------------------\n\n`;
+        updateStatus(`Formatting ${combinedLogs.length} logs...`);
+        const lines = [];
+        lines.push(`Jukebox Debug Logs`);
+        lines.push(`Generated: ${new Date().toLocaleString()}`);
+        lines.push(`App Version: ${APP_VERSION}`);
+        lines.push(`DB Status: ${dbStatus}`);
+        lines.push(`User Agent: ${navigator.userAgent}`);
+        lines.push(`Log Count: ${combinedLogs.length} (Memory: ${this.buffer.length}, DB: ${dbLogs.length})`);
+        lines.push(`----------------------------------------\n`);
 
         combinedLogs.forEach(l => {
             const time = new Date(l.timestamp).toISOString();
-            body += `[${time}] [${l.type}] ${l.content}\n`;
+            lines.push(`[${time}] [${l.type}] ${l.content}`);
         });
 
+        const body = lines.join('\n');
         const now = new Date();
         const dateStr = now.toISOString().split('T')[0];
         const timeStr = now.toLocaleTimeString('ja-JP', { hour12: false }).replace(/:/g, '-');
@@ -550,8 +553,10 @@ const Logger = {
         // 基本的なシェア情報
         const shareData = {
             title: 'Jukebox Logs',
-            text: body.substring(0, 4000) // 最初の4000文字をテキストとしても送信（ファイル未対応時用）
+            text: (body.length < 100000) ? body : "Logs are attached as a file due to size (full log exceeds 100KB)."
         };
+
+        updateStatus("Launching Share Menu...");
 
         // ファイル共有がサポートされているか確認
         if (navigator.canShare && navigator.canShare({ files: [file] })) {
@@ -711,15 +716,16 @@ window.addEventListener('focus', syncUI);
 /**
  * トークンの有効期限をチェックし、必要であればサイレントリフレッシュを行う (v63: 非同期対応)
  */
-async function ensureValidToken(isBackground = false) {
+async function ensureValidToken(isBackground = false, forceRefresh = false) {
     const storedToken = localStorage.getItem('gdrive_token');
     const now = Date.now();
-    let needsRefresh = false;
+    let needsRefresh = forceRefresh;
+    tokenIsMandatory = !isBackground;
 
     if (!storedToken) {
         needsRefresh = true;
         tokenIsMandatory = true;
-    } else {
+    } else if (!forceRefresh) {
         try {
             const tokenData = JSON.parse(storedToken);
             const remainingMs = tokenData.expires_at - now;
@@ -740,10 +746,12 @@ async function ensureValidToken(isBackground = false) {
     }
 
     if (needsRefresh) {
-        console.log("[Auth] Token invalid or expiring soon. Refreshing...");
+        if (!isBackground || forceRefresh) {
+            console.log(`[Auth] Token refresh triggered (force=${forceRefresh}, mandatory=${tokenIsMandatory}).`);
+        }
         
-        // すでに待機中ならそれを待つ
         if (tokenResolve) {
+            console.log("[Auth] Wait for existing token exchange/refresh...");
             await new Promise((res) => {
                 const check = () => {
                     if (!tokenResolve) res();
@@ -754,21 +762,40 @@ async function ensureValidToken(isBackground = false) {
             return;
         }
 
-        const storedTokenData = JSON.parse(localStorage.getItem('gdrive_token') || '{}');
+        const storedTokenDataString = localStorage.getItem('gdrive_token');
+        const storedTokenData = JSON.parse(storedTokenDataString || '{}');
         const refreshToken = storedTokenData.refresh_token;
 
         if (refreshToken) {
-            updateStatus("Refreshing authorization via proxy...");
+            if (!isBackground || forceRefresh) updateStatus("Refreshing authorization via proxy...");
             return new Promise((resolve, reject) => {
                 tokenResolve = resolve;
                 tokenReject = reject;
                 
-                fetch('./auth_proxy.cgi', {
+                // v85: Proxy fetch retry
+                const fetchWithRetry = async (url, options, maxRetry = 3) => {
+                    for (let i = 1; i <= maxRetry; i++) {
+                        try {
+                            console.log(`[Auth] Proxy fetch start: action=refresh (Attempt ${i}/${maxRetry})`);
+                            const res = await fetch(url, options);
+                            return res;
+                        } catch (err) {
+                            if (i === maxRetry) throw err;
+                            console.warn(`[Auth] Proxy fetch attempt ${i} failed, retrying in ${i * 500}ms...`, err);
+                            await new Promise(r => setTimeout(r, i * 500));
+                        }
+                    }
+                };
+
+                fetchWithRetry('./auth_proxy.cgi', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ action: 'refresh', refresh_token: refreshToken })
                 })
-                .then(res => res.json())
+                .then(res => {
+                    console.log(`[Auth] Proxy fetch status: ${res.status} ${res.statusText}`);
+                    return res.json();
+                })
                 .then(data => {
                     if (data.access_token) {
                         const now = Date.now();
@@ -779,9 +806,10 @@ async function ensureValidToken(isBackground = false) {
                             expires_at: expiresAt
                         }));
                         gapi.client.setToken({ access_token: data.access_token });
-                        console.log(`[Auth] Token refreshed successfully via proxy. Valid for ${data.expires_in}s.`);
+                        console.log(`[Auth] Token refreshed successfully via proxy. Valid for ${data.expires_in}s. (Snippet: ${data.access_token.substring(0, 5)}...)`);
                         if (tokenResolve) tokenResolve();
                     } else {
+                        console.error("[Auth] Proxy returned JSON error:", data);
                         throw new Error(data.error || "Failed to refresh token via proxy");
                     }
                 })
@@ -801,14 +829,14 @@ async function ensureValidToken(isBackground = false) {
                 });
             });
         } else {
-            // リフレッシュトークンがない場合は、新規認可が必要
+            console.warn("[Auth] No refresh token found in storage.");
             if (tokenIsMandatory) {
                 updateStatus("Authentication required.");
                 authBtn.style.display = 'block';
                 authBtn.disabled = false;
                 throw new Error("No refresh token available");
             } else {
-                console.warn("[Auth] Refresh needed but no refresh token. Continuing with current token.");
+                console.warn("[Auth] Continuing with potentially expired token...");
             }
         }
     }
@@ -848,14 +876,17 @@ async function authorizedRequest(requestFunc) {
         const res = await requestFunc();
         return res;
     } catch (err) {
-        // 401 (Unauthorized) ならトークンを破棄してリトライ
-        if (err.status === 401 || (err.result && err.result.error && err.result.error.code === 401)) {
-            console.warn("[Auth] 401 Unauthorized detected. Retrying with fresh token...");
-            localStorage.removeItem('gdrive_token');
-            await ensureValidToken(true);
+        const errorCode = (err.result && err.result.error && err.result.error.code) || err.status || 'unknown';
+        
+        // 401 (Unauthorized) または Code -1 (Network Error on Android)
+        if (errorCode === 401 || errorCode === -1) {
+            console.warn(`[Auth] Auth/Network failure detected (Code: ${errorCode}). Retrying with fresh token...`);
+            // v84: removeItemをせず、強制的にリフレッシュを試みる（リフレッシュトークンを維持するため）
+            await ensureValidToken(true, true);
             return await requestFunc();
         }
-        console.error(`[Auth] Request failed (Code: ${err.status || 'unknown'}):`, err);
+        
+        console.error(`[Auth] Request failed (Code: ${errorCode}):`, err);
         throw err;
     }
 }
@@ -915,6 +946,8 @@ function updateStatus(msg) {
 
 // 1. 初期化
 async function initApp() {
+    if (isInitAppDone) return;
+    isInitAppDone = true;
     Logger.init(); // ロガーを最速で初期化
     updateStatus("Loading Program...");
 
@@ -1429,7 +1462,14 @@ async function findTracksFolder(yearId, yearName) {
                     const maxRetries = 10;
                     for (let i = 1; i <= maxRetries; i++) {
                         try {
-                            const timeoutMs = (i === 1) ? 8000 : 5000;
+                            // v83: モバイル環境のためにタイムアウトを緩和
+                            const timeoutMs = (i === 1) ? 15000 : 12000;
+                            
+                            // v83: リトライ時は少し待機（バックオフ）
+                            if (i > 1) {
+                                await new Promise(r => setTimeout(r, i * 500));
+                            }
+                            
                             jData = await fetchMeta(file.id, timeoutMs);
                             console.log(`[Success] Background fetch metadata for: ${file.name} (Attempt ${i}/${maxRetries})`);
                             break;
@@ -1438,7 +1478,7 @@ async function findTracksFolder(yearId, yearName) {
                                 console.error(`[Give up] Background fetch failed after ${maxRetries} attempts for file: ${file.name} (ID: ${file.id})`);
                                 return;
                             }
-                            console.warn(`[Retry] Background fetch timeout, retrying (${i}/${maxRetries}) for: ${file.name}`);
+                            console.warn(`[Retry] Background fetch timeout or error, retrying (${i}/${maxRetries}) for: ${file.name}`);
                         }
                     }
 
@@ -2311,6 +2351,10 @@ function startPlayback(index, url, cover, gen) {
     prefetchNextTrack(index);
 
     // --- 最終手段：監視タイマー ---
+    if (window.autoNextTimer) {
+        clearInterval(window.autoNextTimer);
+        window.autoNextTimer = null;
+    }
     window.autoNextTimer = setInterval(() => {
         // 【重要】世代が古くなっていたらタイマー自体を破棄
         if (playGeneration !== gen) {
