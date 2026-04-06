@@ -545,12 +545,20 @@ const Logger = {
 
         updateStatus(`Formatting ${combinedLogs.length} logs...`);
         const lines = [];
+        const tzOffsetMin = new Date().getTimezoneOffset();
+        const tzSign = tzOffsetMin <= 0 ? '+' : '-';
+        const tzHours = String(Math.floor(Math.abs(tzOffsetMin) / 60)).padStart(2, '0');
+        const tzMins = String(Math.abs(tzOffsetMin) % 60).padStart(2, '0');
+        const tzOffsetStr = `UTC${tzSign}${tzHours}:${tzMins}`;
+        const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Unknown';
         lines.push(`Jukebox Debug Logs`);
         lines.push(`Generated: ${new Date().toLocaleString()}`);
         lines.push(`App Version: ${APP_VERSION}`);
         lines.push(`DB Status: ${dbStatus}`);
         lines.push(`User Agent: ${navigator.userAgent}`);
+        lines.push(`Timezone: ${tzName} (${tzOffsetStr})`);
         lines.push(`Log Count: ${combinedLogs.length} (Memory: ${this.buffer.length}, DB: ${dbLogs.length})`);
+        lines.push(`Note: Log timestamps are in UTC`);
         lines.push(`----------------------------------------\n`);
 
         combinedLogs.forEach(l => {
