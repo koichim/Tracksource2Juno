@@ -17,7 +17,7 @@ let isShuffleOn = false;
 let isRepeatOn = false;
 let playGeneration = 0; // 世代管理：古い再生予約をキャンセルするため
 let isInitAppDone = false; // v86: initAppの二重実行ガード
-const APP_VERSION = "v86"; // プロダクション用バージョン
+const APP_VERSION = "v87"; // プロダクション用バージョン
 let currentPlaylistDate = ""; // v23: 現在のリストの日付
 let currentIsIncomplete = false; // v25: 現在のリストが未完成か
 const REFLECTION_TIME_DAYS = 15; // v35: 15日間
@@ -1016,6 +1016,8 @@ async function initApp() {
         callback: async (resp) => {
             if (resp.code) {
                 updateStatus("Exchanging code for tokens...");
+                authBtn.innerText = "Authenticating...";
+                authBtn.disabled = true;
                 try {
                     const res = await fetch('./auth_proxy.cgi', {
                         method: 'POST',
@@ -1128,9 +1130,11 @@ async function initApp() {
     };
     gisInited = true;
     if (gapiInited && gisInited) {
-        authBtn.disabled = false;
-        authBtn.innerText = "Google Drive Auth";
-        updateStatus("Ready");
+        if (!discoveryStarted) {
+            authBtn.disabled = false;
+            authBtn.innerText = "Google Drive Auth";
+            updateStatus("Ready");
+        }
     }
 
     // initApp の最後、または window.onload 内に記述
