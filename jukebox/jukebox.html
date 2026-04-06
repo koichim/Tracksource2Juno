@@ -11,8 +11,8 @@
 
     <!-- AmplitudeJS Library -->
     <script src="https://cdn.jsdelivr.net/npm/amplitudejs@5.3.2/dist/amplitude.min.js"></script>
-    <link rel="stylesheet" href="jukebox.css?v=86">
-    <link rel="manifest" href="manifest.json?v=86">
+    <link rel="stylesheet" href="jukebox.css?v=88">
+    <link rel="manifest" href="manifest.json?v=88">
     <meta name="theme-color" content="#141920">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
@@ -125,7 +125,7 @@
     </div>
 
     <div id="app-version-footer">
-        <div id="app-version">v87</div>
+        <div id="app-version">v88</div>
         <div>
             <span id="clear-cache-btn">[Clear Cache]</span>
             <span id="share-logs-btn">[Send Logs]</span>
@@ -135,7 +135,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js"></script>
     <script src="https://apis.google.com/js/api.js"></script>
     <script src="https://accounts.google.com/gsi/client"></script>
-    <script src="jukebox.js?v=86"></script>
+    <script src="jukebox.js?v=88"></script>
 
     <script>
         // togglePlaylistView は jukebox.js 側で window.togglePlaylistView として定義されています
@@ -147,7 +147,28 @@
         function waitForLibraries() {
             if (typeof gapi !== 'undefined' && window.google && window.google.accounts) {
                 console.log("Libraries detected.");
-                initApp(); // jukebox.js内の関数
+                
+                // v88: シングルインスタンス（起動）ロック
+                if (navigator.locks) {
+                    navigator.locks.request('jukebox-app', { ifAvailable: true }, async (lock) => {
+                        if (!lock) {
+                            document.body.innerHTML = `
+                                <div style="color:white; display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; background:#141920; text-align:center; padding:20px; font-family:sans-serif;">
+                                    <h1 style="font-size:24px; margin-bottom:20px;">⚠ 別のタブで起動中です</h1>
+                                    <p style="color:#aaa; line-height:1.6;">Jukeboxはすでに別のタブまたはウィンドウで開かれています。<br>競合を防ぐため、同時に複数のタブで利用することはできません。</p>
+                                    <p style="color:#aaa; line-height:1.6; margin-top:20px;">このタブで再生したい場合は、<br><b>現在開いている他のJukeboxのタブを閉じてから</b><br>再読み込みしてください。</p>
+                                    <button onclick="location.reload()" style="margin-top:30px; padding:12px 30px; background:#1db954; color:white; border:none; border-radius:30px; font-size:16px; font-weight:bold; cursor:pointer; box-shadow:0 4px 10px rgba(0,0,0,0.5);">再読み込み</button>
+                                </div>
+                            `;
+                            return;
+                        }
+                        initApp(); // jukebox.js内の関数
+                        return new Promise(() => {}); // タブが閉じるまでロックを維持
+                    });
+                } else {
+                    // Web Locks API 非対応用フォールバック
+                    initApp();
+                }
             } else {
                 console.log("Waiting for Google Libraries...");
                 setTimeout(waitForLibraries, 200);
@@ -158,7 +179,7 @@
 
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./sw.js?v=86', { scope: './' })
+                navigator.serviceWorker.register('./sw.js?v=88', { scope: './' })
                     .then(reg => console.log('Service Worker registered with scope:', reg.scope))
                     .catch(err => console.error('Service Worker registration failed', err));
             });
