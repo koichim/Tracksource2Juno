@@ -17,7 +17,7 @@ let isShuffleOn = false;
 let isRepeatOn = false;
 let playGeneration = 0; // 世代管理：古い再生予約をキャンセルするため
 let isInitAppDone = false; // v86: initAppの二重実行ガード
-const APP_VERSION = "v88"; // プロダクション用バージョン
+const APP_VERSION = "v91"; // プロダクション用バージョン
 let currentPlaylistDate = ""; // v23: 現在のリストの日付
 let currentIsIncomplete = false; // v25: 現在のリストが未完成か
 const REFLECTION_TIME_DAYS = 15; // v35: 15日間
@@ -44,7 +44,15 @@ const MetadataQueue = {
     pending: [],
     running: 0,
     maxConcurrent: 1, // v47: データベースのロックを避けるため並列数を1に制限
-    add(task) {
+    enqueuedIds: new Set(), // v90: 同じfile.idの重複エンキューを防ぐ
+    // v90: fileId引数を追加。指定すると重複チェックが行われる。
+    add(task, fileId = null) {
+        if (fileId && this.enqueuedIds.has(fileId)) {
+            console.warn(`[MetadataQueue] Skipping duplicate enqueue for fileId: ${fileId.substring(0, 8)}...`);
+            return Promise.resolve();
+        }
+        if (fileId) this.enqueuedIds.add(fileId);
+
         return new Promise((resolve, reject) => {
             this.pending.push(async () => {
                 try {
@@ -83,6 +91,7 @@ const MetadataQueue = {
     clear() {
         this.pending = [];
         this.running = 0; // 強制リセット
+        this.enqueuedIds.clear(); // v90: IDセットもクリア
         console.log("MetadataQueue cleared.");
     }
 };
@@ -418,6 +427,13 @@ const Logger = {
         error: console.error
     },
     init() {
+        // v91: 二重初期化防止ガード。これが全ログ二重化の根本原因。
+        if (this._initialized) {
+            this.logDirect("WARN", "[Logger] init() called more than once! Duplicate initialization prevented.");
+            return;
+        }
+        this._initialized = true;
+
         const self = this;
         // console.log のフック
         console.log = function() {
@@ -440,7 +456,7 @@ const Logger = {
             self.save('EXCEPTION', [event.message, event.filename, event.lineno]);
         });
         
-        // v65: システムイベントの合言葉
+        // v65: システムイベントの記録
         window.addEventListener('visibilitychange', () => {
             this.logDirect("SYSTEM", `Visibility changed to: ${document.visibilityState}`);
         });
@@ -1450,7 +1466,7 @@ async function findTracksFolder(yearId, yearName) {
             }
 
             // 非同期で最新情報を取得
-            MetadataQueue.add(async () => {
+            MetadataQueue.add(async () => { // v90: file.idを渡して重複エンキューを防止
                 try {
                     // console.log("Starting background metadata fetch:", file.name);
 
@@ -1573,7 +1589,7 @@ async function findTracksFolder(yearId, yearName) {
                 } finally {
                     // console.log("Background task finished (released queue):", file.name);
                 }
-            });
+            }, file.id); // v90: 重複防止用のfileId
         }
     }
     return results;
@@ -2294,10 +2310,13 @@ function startPlayback(index, url, cover, gen) {
         Logger.monitorAudio(audio);
         audio.onended = () => {
             // 【重要】このイベントが発生した時の世代が、現在の世代と一致する場合のみ次へ
-            if (playGeneration === gen) {
+            // v89: isNextTrackPendingも確認して setInterval との二重発火を防ぐ
+            if (playGeneration === gen && !isNextTrackPending) {
                 console.log(`[Gen ${gen}] Native Audio Ended. Triggering next track...`);
                 isLoadingTrack = false;
                 playNextTrack();
+            } else if (playGeneration === gen && isNextTrackPending) {
+                console.warn(`[Gen ${gen}] Native Audio Ended but skipped (isNextTrackPending=true, already handled).`);
             } else {
                 console.warn(`[Gen ${gen}] Native Audio Ended but ignored (New gen ${playGeneration} is active).`);
             }
@@ -2375,27 +2394,34 @@ function startPlayback(index, url, cover, gen) {
     prefetchNextTrack(index);
 
     // --- 最終手段：監視タイマー ---
+    // v91: timerIdをローカルに保持し、clearInterval(window.autoNextTimer)バグを修正。
+    // 旧実装では「自分自身」でなく「現在のグローバル参照」を消していたため、
+    // 複数タイマーが存在する場合に誤ったタイマーを破棄していた。
     if (window.autoNextTimer) {
         clearInterval(window.autoNextTimer);
         window.autoNextTimer = null;
     }
-    window.autoNextTimer = setInterval(() => {
-        // 【重要】世代が古くなっていたらタイマー自体を破棄
+    let autoNextTimerId;
+    autoNextTimerId = window.autoNextTimer = setInterval(() => {
+        // 【重要】世代が古くなっていたら「このタイマー自身」を確実に破棄
         if (playGeneration !== gen) {
-            clearInterval(window.autoNextTimer);
-            window.autoNextTimer = null;
+            clearInterval(autoNextTimerId);
+            if (window.autoNextTimer === autoNextTimerId) window.autoNextTimer = null;
             return;
         }
 
         const audio = Amplitude.getAudio ? Amplitude.getAudio() : document.querySelector('audio');
         if (audio && !audio.paused && audio.duration > 0) {
             const timeLeft = audio.duration - audio.currentTime;
-            if (timeLeft < 0.5 && timeLeft > 0) {
+            // v89: isNextTrackPendingも確認して onended との二重発火を防ぐ
+            if (timeLeft < 0.5 && timeLeft > 0 && !isNextTrackPending) {
                 console.log(`[Gen ${gen}] Timer detected end. Forcing next...`);
-                clearInterval(window.autoNextTimer);
-                window.autoNextTimer = null;
+                clearInterval(autoNextTimerId);
+                if (window.autoNextTimer === autoNextTimerId) window.autoNextTimer = null;
                 isLoadingTrack = false;
                 playNextTrack();
+            } else if (timeLeft < 0.5 && timeLeft > 0 && isNextTrackPending) {
+                console.log(`[Gen ${gen}] Timer detected end but skipped (isNextTrackPending=true, already handled).`);
             }
         }
     }, 300);

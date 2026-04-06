@@ -11,8 +11,8 @@
 
     <!-- AmplitudeJS Library -->
     <script src="https://cdn.jsdelivr.net/npm/amplitudejs@5.3.2/dist/amplitude.min.js"></script>
-    <link rel="stylesheet" href="jukebox.css?v=88">
-    <link rel="manifest" href="manifest.json?v=88">
+    <link rel="stylesheet" href="jukebox.css?v=91">
+    <link rel="manifest" href="manifest.json?v=91">
     <meta name="theme-color" content="#141920">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
@@ -125,7 +125,7 @@
     </div>
 
     <div id="app-version-footer">
-        <div id="app-version">v88</div>
+        <div id="app-version">v91</div>
         <div>
             <span id="clear-cache-btn">[Clear Cache]</span>
             <span id="share-logs-btn">[Send Logs]</span>
@@ -135,7 +135,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js"></script>
     <script src="https://apis.google.com/js/api.js"></script>
     <script src="https://accounts.google.com/gsi/client"></script>
-    <script src="jukebox.js?v=88"></script>
+    <script src="jukebox.js?v=91"></script>
 
     <script>
         // togglePlaylistView は jukebox.js 側で window.togglePlaylistView として定義されています
@@ -179,7 +179,7 @@
 
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./sw.js?v=88', { scope: './' })
+                navigator.serviceWorker.register('./sw.js?v=91', { scope: './' })
                     .then(reg => console.log('Service Worker registered with scope:', reg.scope))
                     .catch(err => console.error('Service Worker registration failed', err));
             });
