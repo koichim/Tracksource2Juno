@@ -11,8 +11,8 @@
 
     <!-- AmplitudeJS Library -->
     <script src="https://cdn.jsdelivr.net/npm/amplitudejs@5.3.2/dist/amplitude.min.js"></script>
-    <link rel="stylesheet" href="jukebox.css?v=91">
-    <link rel="manifest" href="manifest.json?v=91">
+    <link rel="stylesheet" href="jukebox.css?v=93">
+    <link rel="manifest" href="manifest.json?v=93">
     <meta name="theme-color" content="#141920">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
@@ -125,7 +125,7 @@
     </div>
 
     <div id="app-version-footer">
-        <div id="app-version">v91</div>
+        <div id="app-version">v93</div>
         <div>
             <span id="clear-cache-btn">[Clear Cache]</span>
             <span id="share-logs-btn">[Send Logs]</span>
@@ -147,7 +147,7 @@
         function waitForLibraries() {
             if (typeof gapi !== 'undefined' && window.google && window.google.accounts) {
                 console.log("Libraries detected.");
-                
+
                 // v88: シングルインスタンス（起動）ロック
                 if (navigator.locks) {
                     navigator.locks.request('jukebox-app', { ifAvailable: true }, async (lock) => {
@@ -163,7 +163,7 @@
                             return;
                         }
                         initApp(); // jukebox.js内の関数
-                        return new Promise(() => {}); // タブが閉じるまでロックを維持
+                        return new Promise(() => { }); // タブが閉じるまでロックを維持
                     });
                 } else {
                     // Web Locks API 非対応用フォールバック
