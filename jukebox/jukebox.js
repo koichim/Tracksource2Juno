@@ -357,7 +357,7 @@ const JukeboxDB = {
         } catch (e) { /* ignore */ }
     },
     // --- Logging Support ---
-    async saveLog(type, content) {
+    async saveLog(type, content, dateNow) {
         try {
             const db = await this.open();
             if (!db.objectStoreNames.contains('logs')) return;
@@ -365,7 +365,7 @@ const JukeboxDB = {
             transaction.objectStore('logs').add({
                 type,
                 content,
-                timestamp: Date.now()
+                timestamp: dateNow
             });
         } catch (e) {
             if (typeof Logger !== 'undefined' && Logger.originalConsole) {
@@ -482,14 +482,15 @@ const Logger = {
     },
     // コンソールのフックを通さずに直接保存する（内部用）
     logDirect(type, msg) {
-        this.saveToMemory(type, msg);
-        JukeboxDB.saveLog(type, msg);
+        const dateNow = Date.now();
+        this.saveToMemory(type, msg, dateNow);
+        JukeboxDB.saveLog(type, msg, dateNow);
     },
-    saveToMemory(type, msg) {
+    saveToMemory(type, msg, dateNow) {
         this.buffer.push({
             type,
             content: msg,
-            timestamp: Date.now()
+            timestamp: dateNow
         });
         if (this.buffer.length > 500) this.buffer.shift(); // 最大500件保持
     },
@@ -504,8 +505,9 @@ const Logger = {
                 return String(arg);
             }).join(' ');
 
-            this.saveToMemory(type, msg);
-            JukeboxDB.saveLog(type, msg);
+            const dateNow = Date.now();
+            this.saveToMemory(type, msg, dateNow);
+            JukeboxDB.saveLog(type, msg, dateNow);
         } catch (e) {
         } finally {
             this.isLogging = false;
