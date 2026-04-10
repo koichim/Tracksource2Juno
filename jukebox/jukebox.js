@@ -735,7 +735,7 @@ const syncUI = () => {
 };
 
 // スクリプト読み込み直後から開始
-setInterval(syncUI, 200);
+setInterval(syncUI, 1000);
 document.addEventListener('visibilitychange', syncUI);
 window.addEventListener('focus', syncUI);
 
