@@ -2335,8 +2335,9 @@ function startPlayback(index, url, cover, gen) {
 
     // --- Media Session API (ロック画面制御) ---
     if ('mediaSession' in navigator) {
+        const fullTitle = track.version ? `${track.title} (${track.version})` : track.title;
         navigator.mediaSession.metadata = new MediaMetadata({
-            title: track.title,
+            title: fullTitle,
             artist: track.artist || "Unknown",
             album: "Cloud Jukebox",
             artwork: [
