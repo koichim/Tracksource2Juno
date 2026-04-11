@@ -4,6 +4,7 @@ import json
 import os
 import re
 import html
+import shutil
 from datetime import datetime
 
 def split_title_version(full_title):
@@ -50,6 +51,12 @@ def convert_xspf(xspf_path):
     date_str = now.strftime("%Y-%m-%d")
 
     output_filename = f"{year_now} favorites.json"
+    source_path = f"/mnt/h/music/{year_now}/tracks/{output_filename}"
+
+    # If the file exists on the H: drive but not locally, copy it over
+    if os.path.exists(source_path) and not os.path.exists(output_filename):
+        print(f"Copying {source_path} to current directory...")
+        shutil.copy2(source_path, output_filename)
 
     # Load existing JSON if it already exists (append mode)
     if os.path.exists(output_filename):
@@ -66,7 +73,7 @@ def convert_xspf(xspf_path):
         }
 
     # Build set of already-known mp3 basenames to prevent duplicates
-    existing_basenames = {os.path.basename(e.get("mp3_file", "")) for e in data["chart"]}
+    existing_basenames = {os.path.basename(e.get("mp3_file", "")) for e in data["chart"] if e}
 
     # External JSON cache to avoid reloading same file
     json_cache = {}
@@ -108,6 +115,7 @@ def convert_xspf(xspf_path):
                     if metadata and "chart" in metadata:
                         # Try exact match first
                         for entry in metadata["chart"]:
+                            if not entry: continue
                             target_mp3 = entry.get("mp3_file", "")
                             if os.path.basename(target_mp3) == base_filename:
                                 if target_mp3 == "":
@@ -126,6 +134,7 @@ def convert_xspf(xspf_path):
                             
                             clean_base = strip_prefix(base_filename)
                             for entry in metadata["chart"]:
+                                if not entry: continue
                                 target_mp3 = entry.get("mp3_file", "")
                                 if strip_prefix(os.path.basename(target_mp3)) == clean_base:
                                     if target_mp3 == "":
@@ -171,7 +180,7 @@ def convert_xspf(xspf_path):
                     new_tracks.append(track_entry)
 
     # Rebuild: existing entries + unique new entries
-    data["chart"] = new_tracks + [e for e in data["chart"] if os.path.basename(e.get("mp3_file", "")) in existing_basenames]
+    data["chart"] = new_tracks + [e for e in data["chart"] if e and os.path.basename(e.get("mp3_file", "")) in existing_basenames]
 
     with open(output_filename, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
