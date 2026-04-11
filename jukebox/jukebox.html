@@ -11,13 +11,50 @@
 
     <!-- AmplitudeJS Library -->
     <script src="https://cdn.jsdelivr.net/npm/amplitudejs@5.3.2/dist/amplitude.min.js"></script>
-    <link rel="stylesheet" href="jukebox.css?v=106">
-    <link rel="manifest" href="manifest.json?v=106">
+    <link rel="stylesheet" href="jukebox.css">
+    <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#141920">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <link rel="apple-touch-icon" href="icon-192x192.png">
+
+    <script>
+        // v107: Centralized version loading from manifest.json
+        window.JUKEBOX_VERSION = 'loading...'; // 初期値
+
+        async function registerSW(version) {
+            if ('serviceWorker' in navigator) {
+                try {
+                    const reg = await navigator.serviceWorker.register(`./sw.js?v=${version}`, { scope: './' });
+                    console.log('[SW] Registered with version:', version);
+                } catch (err) {
+                    console.error('[SW] Registration failed:', err);
+                }
+            }
+        }
+
+        // 起動時に最優先でバージョンを取得
+        fetch('manifest.json', { cache: 'no-store' })
+            .then(res => res.json())
+            .then(data => {
+                window.JUKEBOX_VERSION = data.version || 'unknown';
+                console.log('[App] Version loaded:', window.JUKEBOX_VERSION);
+                registerSW(window.JUKEBOX_VERSION);
+                
+                // DOM構築後であれば表示も更新
+                const updateUI = () => {
+                    const el = document.getElementById('app-version');
+                    if (el) el.innerText = window.JUKEBOX_VERSION;
+                };
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', updateUI);
+                } else {
+                    updateUI();
+                }
+            })
+            .catch(err => console.error('[App] Failed to load version:', err));
+    </script>
 </head>
 
 <body>
@@ -125,7 +162,7 @@
     </div>
 
     <div id="app-version-footer">
-        <div id="app-version">v106</div>
+        <div id="app-version">--</div>
         <div>
             <span id="clear-cache-btn">[Clear Cache]</span>
             <span id="share-logs-btn">[Send Logs]</span>
@@ -135,18 +172,13 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js"></script>
     <script src="https://apis.google.com/js/api.js"></script>
     <script src="https://accounts.google.com/gsi/client"></script>
-    <script src="jukebox.js?v=106"></script>
+    <script src="jukebox.js"></script>
 
     <script>
         // togglePlaylistView は jukebox.js 側で window.togglePlaylistView として定義されています
 
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./sw.js?v=106', { scope: './' })
-                    .then(reg => console.log('Service Worker registered with scope:', reg.scope))
-                    .catch(err => console.error('Service Worker registration failed', err));
-            });
-        }
+        // v107: Centralized version loading is now in <head>
+
 
         // ライブラリの存在を確認してから開始
         function waitForLibraries() {
@@ -182,13 +214,7 @@
         window.onload = waitForLibraries;
 
 
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./sw.js?v=91', { scope: './' })
-                    .then(reg => console.log('Service Worker registered with scope:', reg.scope))
-                    .catch(err => console.error('Service Worker registration failed', err));
-            });
-        }
+
 
         // Playlist toggle
         const playlistToggleBtn = document.getElementById('playlist-toggle');

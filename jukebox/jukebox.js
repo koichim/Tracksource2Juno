@@ -17,7 +17,9 @@ let isShuffleOn = false;
 let isRepeatOn = false;
 let playGeneration = 0; // 世代管理：古い再生予約をキャンセルするため
 let isInitAppDone = false; // v86: initAppの二重実行ガード
-const APP_VERSION = "v106"; // 安定版・復旧バージョン
+// v107: 集中管理（manifest.json）から取得したバージョン。未取得時はグローバル変数 or フォールバックを参照
+const getAppVersion = () => window.JUKEBOX_VERSION && window.JUKEBOX_VERSION !== 'loading...' ? window.JUKEBOX_VERSION : "v107";
+const APP_VERSION = getAppVersion(); // 互換性のため一旦定義するが、動的な場所では getAppVersion() を推奨
 let currentPlaylistDate = ""; // v23: 現在のリストの日付
 let currentIsIncomplete = false; // v25: 現在のリストが未完成か
 const REFLECTION_TIME_DAYS = 15; // v35: 15日間
@@ -467,7 +469,7 @@ const Logger = {
         setTimeout(() => JukeboxDB.pruneLogs(7), 5000);
 
         // 疎通確認のためのテストログ
-        this.logDirect("INFO", `[Logger] v65 Initialized at ${new Date().toISOString()}`);
+        this.logDirect("INFO", `[Logger] ${APP_VERSION} Initialized at ${new Date().toISOString()}`);
     },
     // オーディオ要素の状態を監視
     monitorAudio(audio) {
@@ -555,7 +557,7 @@ const Logger = {
         const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Unknown';
         lines.push(`Jukebox Debug Logs`);
         lines.push(`Generated: ${new Date().toLocaleString()}`);
-        lines.push(`App Version: ${APP_VERSION}`);
+        lines.push(`App Version: ${getAppVersion()}`);
         lines.push(`DB Status: ${dbStatus}`);
         lines.push(`User Agent: ${navigator.userAgent}`);
         lines.push(`Timezone: ${tzName} (${tzOffsetStr})`);
@@ -726,7 +728,7 @@ const syncUI = () => {
                 navigator.mediaSession.playbackState = targetState;
             }
         }
-        const version = APP_VERSION;
+        const version = getAppVersion();
         const appVersionEl = document.getElementById('app-version');
         if (appVersionEl) appVersionEl.innerText = version;
     } catch (err) {
@@ -735,7 +737,7 @@ const syncUI = () => {
 };
 
 // スクリプト読み込み直後から開始
-setInterval(syncUI, 1000);
+setInterval(syncUI, 200);
 document.addEventListener('visibilitychange', syncUI);
 window.addEventListener('focus', syncUI);
 

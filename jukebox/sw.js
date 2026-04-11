@@ -1,4 +1,5 @@
-const CACHE_NAME = 'jukebox-cache-v106';
+const VERSION = new URL(self.location).searchParams.get('v') || 'v107';
+const CACHE_NAME = 'jukebox-cache-' + VERSION;
 const ASSETS_TO_CACHE = [
   './jukebox.html',
   './jukebox.css',
