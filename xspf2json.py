@@ -19,6 +19,27 @@ def split_title_version(full_title):
         return title, version
     return full_title.strip(), ""
 
+def normalize_filename(path):
+    """
+    Normalizes a filename for deduplication:
+    - Extracts basename and removes extension.
+    - Removes leading track numbers and separators.
+    - Normalizes whitespace (multiple spaces to one).
+    - Converts to lowercase.
+    """
+    if not path:
+        return ""
+    basename = os.path.basename(path)
+    name, _ = os.path.splitext(basename)
+    
+    # Remove leading track numbers and separators (e.g., "01 - ", "1. ", "01. ", "1-01 - ")
+    name = re.sub(r'^\d+([\s\-\.]+\d+)*[\s\-\.]+', '', name)
+    
+    # Normalize whitespace
+    name = " ".join(name.split())
+    
+    return name.lower()
+
 def load_external_json(json_path):
     """Loads external chart JSON and returns it as a dict."""
     if not os.path.exists(json_path):
@@ -72,13 +93,13 @@ def convert_xspf(xspf_path):
             "chart": []
         }
 
-    # Build set of already-known mp3 basenames to prevent duplicates
-    existing_basenames = {os.path.basename(e.get("mp3_file", "")) for e in data["chart"] if e}
+    # Build set of already-known normalized names to prevent duplicates
+    existing_normalized = {normalize_filename(e.get("mp3_file", "")) for e in data["chart"] if e}
 
     # External JSON cache to avoid reloading same file
     json_cache = {}
     new_tracks = []  # Tracks to be added this run (not yet in existing chart)
-    seen_basenames = set(existing_basenames)  # Track all seen basenames (existing + new) in real time
+    seen_normalized = set(existing_normalized)  # Track all seen normalized names in real time
     dup_count = 0  # Count of duplicates removed
 
     tracklist = root.find('x:trackList', ns)
@@ -129,14 +150,11 @@ def convert_xspf(xspf_path):
                         
                         # Try matching with track numbers stripped if not found
                         if not found:
-                            def strip_prefix(s):
-                                return re.sub(r'^\d+(\s*-\s*\d+)*\s*-\s*', '', s)
-                            
-                            clean_base = strip_prefix(base_filename)
+                            normalized_base = normalize_filename(base_filename)
                             for entry in metadata["chart"]:
                                 if not entry: continue
                                 target_mp3 = entry.get("mp3_file", "")
-                                if strip_prefix(os.path.basename(target_mp3)) == clean_base:
+                                if normalize_filename(target_mp3) == normalized_base:
                                     if target_mp3 == "":
                                         print(f"Skipping track (empty mp3_file, fuzzy match): {base_filename}")
                                         found = True
@@ -171,16 +189,16 @@ def convert_xspf(xspf_path):
                 }
 
             if track_entry:
-                bname = os.path.basename(track_entry.get("mp3_file", ""))
-                if bname in seen_basenames:
-                    print(f"Dedup: removing duplicate '{bname}'")
+                norm_name = normalize_filename(track_entry.get("mp3_file", ""))
+                if norm_name in seen_normalized:
+                    print(f"Dedup: removing duplicate '{os.path.basename(track_entry.get('mp3_file', ''))}'")
                     dup_count += 1
                 else:
-                    seen_basenames.add(bname)
+                    seen_normalized.add(norm_name)
                     new_tracks.append(track_entry)
 
     # Rebuild: existing entries + unique new entries
-    data["chart"] = new_tracks + [e for e in data["chart"] if e and os.path.basename(e.get("mp3_file", "")) in existing_basenames]
+    data["chart"] = new_tracks + [e for e in data["chart"] if e and normalize_filename(e.get("mp3_file", "")) in existing_normalized]
 
     with open(output_filename, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
