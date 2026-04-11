@@ -17,8 +17,7 @@ let isShuffleOn = false;
 let isRepeatOn = false;
 let playGeneration = 0; // 世代管理：古い再生予約をキャンセルするため
 let isInitAppDone = false; // v86: initAppの二重実行ガード
-const APP_VERSION = "v103"; // 構造簡素化バージョン
-let isTransitioning = false; // v98: 曲の遷移中フラグ
+const APP_VERSION = "v93"; // プロダクション用バージョン
 let currentPlaylistDate = ""; // v23: 現在のリストの日付
 let currentIsIncomplete = false; // v25: 現在のリストが未完成か
 const REFLECTION_TIME_DAYS = 15; // v35: 15日間
@@ -427,24 +426,6 @@ const Logger = {
         warn: console.warn,
         error: console.error
     },
-
-    // v99: オーディ要素のイベントを監視する（重複登録を徹底防止）
-    monitorAudio(audio) {
-        if (!audio || audio._monitored) return;
-        audio._monitored = true;
-
-        console.log("[Logger] First-time audio monitoring setup.");
-        // 注意: ここは Logger オブジェクト内なので this は Logger を指す
-        const self = this;
-        audio.addEventListener('play', () => self.logDirect('play', 'Audio started playing'), true);
-        audio.addEventListener('pause', () => self.logDirect('pause', 'Audio paused'), true);
-        audio.addEventListener('waiting', () => self.logDirect('waiting', 'Audio waiting (buffering)'), true);
-        audio.addEventListener('playing', () => self.logDirect('playing', 'Audio actually playing'), true);
-        audio.addEventListener('ended', () => self.logDirect('ended', 'Audio ended'), true);
-        audio.addEventListener('stalled', () => self.logDirect('stalled', 'Audio stalled'), true);
-        audio.addEventListener('error', (e) => self.logDirect('error', 'Audio error: ' + (audio.error ? audio.error.code : 'unknown')), true);
-    },
-
     init() {
         // v91: 二重初期化防止ガード。これが全ログ二重化の根本原因。
         if (this._initialized) {
@@ -486,7 +467,7 @@ const Logger = {
         setTimeout(() => JukeboxDB.pruneLogs(7), 5000);
 
         // 疎通確認のためのテストログ
-        this.logDirect("INFO", `[Logger] v102 Initialized at ${new Date().toISOString()}`);
+        this.logDirect("INFO", `[Logger] v65 Initialized at ${new Date().toISOString()}`);
     },
     // オーディオ要素の状態を監視
     monitorAudio(audio) {
@@ -503,18 +484,7 @@ const Logger = {
     logDirect(type, msg) {
         const dateNow = Date.now();
         this.saveToMemory(type, msg, dateNow);
-
-        // v96: 再生開始直後など、I/O負荷を避けたい時間帯は DB 保存をスキップ
-        if (dateNow < this.suppressUntil) {
-            // メモリには残るので後で export 可能
-            return;
-        }
         JukeboxDB.saveLog(type, msg, dateNow);
-    },
-    // v96: 指定した秒数だけ I/O 保存を抑制する
-    suppressIOSec(seconds) {
-        this.suppressUntil = Date.now() + (seconds * 1000);
-        console.log(`[Logger] I/O suppressed for next ${seconds}s to reduce CPU load.`);
     },
     saveToMemory(type, msg, dateNow) {
         this.buffer.push({
@@ -682,9 +652,6 @@ const getRealAudio = () => {
 
 // --- グローバル同期 (v12.0: どんなエラーがあっても止まらないように最上部で定義) ---
 const syncUI = () => {
-    // v98: 曲の遷移直後はシステムの安定を優先して UI 同期をスキップ
-    if (isTransitioning) return;
-
     try {
         const audio = getRealAudio();
 
@@ -771,54 +738,6 @@ const syncUI = () => {
 setInterval(syncUI, 1000);
 document.addEventListener('visibilitychange', syncUI);
 window.addEventListener('focus', syncUI);
-
-/**
- * v95: Media Session アクションハンドラを一括設定（重複登録防止）
- */
-function setupMediaSessionHandlers() {
-    if (!('mediaSession' in navigator)) return;
-
-    navigator.mediaSession.setActionHandler('play', async () => {
-        console.log("[MediaSession] User clicked 'Play' from OS controls");
-        try {
-            const audio = getRealAudio();
-            if (audio && audio.paused) {
-                await Amplitude.play();
-                navigator.mediaSession.playbackState = "playing";
-            }
-        } catch (err) {
-            console.error("MediaSession Play Error:", err);
-        }
-    });
-
-    navigator.mediaSession.setActionHandler('pause', () => {
-        console.log("[MediaSession] User clicked 'Pause' from OS controls");
-        try {
-            const audio = getRealAudio();
-            if (audio && !audio.paused) {
-                Amplitude.pause();
-                navigator.mediaSession.playbackState = "paused";
-            }
-        } catch (err) {
-            console.error("MediaSession Pause Error:", err);
-        }
-    });
-
-    navigator.mediaSession.setActionHandler('previoustrack', () => {
-        console.log("[MediaSession] User clicked 'Previous' from OS controls");
-        const prevIndex = findValidTrackIndex(currentTrackIndex - 1, -1);
-        if (prevIndex !== -1) {
-            playWithAmplitude(prevIndex);
-        } else {
-            playWithAmplitude(0);
-        }
-    });
-
-    navigator.mediaSession.setActionHandler('nexttrack', () => {
-        console.log("[MediaSession] User clicked 'Next' from OS controls");
-        playNextTrack();
-    });
-}
 
 /**
  * トークンの有効期限をチェックし、必要であればサイレントリフレッシュを行う (v63: 非同期対応)
@@ -1277,9 +1196,6 @@ async function initApp() {
     if (shareLogsBtn) {
         shareLogsBtn.onclick = () => Logger.export();
     }
-
-    // v95: メディアセッションの初期設定
-    setupMediaSessionHandlers();
 }
 
 authBtn.onclick = () => tokenClient.requestCode();
@@ -1817,6 +1733,7 @@ function showPlayer(year) {
     updateStatus("Ready: " + year);
 }
 
+
 function renderList() {
     trackList.innerHTML = '';
     currentPlaylist.forEach((track, index) => {
@@ -2099,28 +2016,11 @@ async function prefetchNextTrack(currentIndex) {
                     });
                     if (tags && tags.picture) {
                         const { data, format } = tags.picture;
-                        const coverBlob = new Blob([new Uint8Array(data)], { type: format });
-                        coverUrl = URL.createObjectURL(coverBlob);
-                        
-                        // v101: 曲が始まる前にバックグラウンドで画像を解凍（デコード）しておく
-                        // これにより、再生開始時の CPU スパイク（画像展開負荷）を回避できる
-                        try {
-                            const img = new Image();
-                            img.src = coverUrl;
-                            if (img.decode) {
-                                img.decode().then(() => {
-                                    console.log("[v101] Cover art pre-decoded successfully.");
-                                }).catch(e => {
-                                    console.warn("[v101] Image decode failed (ignoring):", e);
-                                });
-                            }
-                        } catch (e) {
-                            console.warn("[v101] Image decode error:", e);
-                        }
+                        coverUrl = URL.createObjectURL(new Blob([new Uint8Array(data)], { type: format }));
                     }
                 }
             } catch (e) {
-                console.log("Prefetch: Cover art extraction failed/skipped.");
+                console.log("Prefetch: Cover art extraction skipped.");
             }
 
             nextCoverUrl = coverUrl;
@@ -2257,15 +2157,9 @@ async function playWithAmplitude(index) {
 
         // --- 2. 先読み(Prefetch)済みのURLがあるかチェック ---
         if (index === nextTrackIndex && nextBlobUrl) {
-            // v98: 以前の Blob URL の破棄を60秒遅らせる (メモリ解放負荷の回避)
-            if (currentBlobUrl) {
-                const oldUrl = currentBlobUrl;
-                setTimeout(() => {
-                    console.log("[v98] Cleaning up old Blob URL after delay.");
-                    URL.revokeObjectURL(oldUrl);
-                }, 60000);
-            }
 
+
+            if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
             currentBlobUrl = nextBlobUrl;
             const coverUrl = nextCoverUrl;
 
@@ -2399,104 +2293,146 @@ function startPlayback(index, url, cover, gen) {
     const track = currentPlaylist[index];
     if (!track) return;
 
-    // 前回の曲のインデックスを保持
-    const prevIndex = currentTrackIndex;
     currentTrackIndex = index;
     const fullTitle = track.version ? `${track.title} (${track.version})` : track.title;
 
-    // --- 1. 負荷抑制 (v103: 極力シンプルに) ---
-    isTransitioning = true;
-    setTimeout(() => { isTransitioning = false; }, 2000);
-
-    // --- 2. AmplitudeJS による標準再生 ---
+    // 1. Amplitudeでの再生
     const songData = {
         name: fullTitle,
         artist: track.artist || "Unknown",
         url: url,
         cover_art_url: cover
     };
-    
     Amplitude.playNow(songData);
 
-    const audio = getRealAudio();
-    if (audio) {
-        Logger.monitorAudio(audio);
-
-        // 次曲への遷移イベント (v103: 標準の ended イベント)
-        audio.onended = () => {
-            if (playGeneration === gen && !isNextTrackPending) {
-                console.log(`[Gen ${gen}] Song ended. Moving to next.`);
-                isLoadingTrack = false;
-                setTimeout(() => playNextTrack(), 50);
-            }
-        };
-
-        // v98: ロック中プリフェッチ
-        let isPrefetchTriggered = false;
-        const prefetchTrigger = () => {
-            if (audio.currentTime > 10 && !isPrefetchTriggered) {
-                isPrefetchTriggered = true;
-                if (gen === playGeneration) {
-                    prefetchNextTrack(index);
-                }
-                audio.removeEventListener('timeupdate', prefetchTrigger);
-            }
-        };
-        audio.addEventListener('timeupdate', prefetchTrigger);
-    }
-
-    // --- 3. UI・メタデータ更新 (v103: 0.5秒後に統合) ---
+    // 2. スマホ等での再生失敗対策：少し後に再生状態を確認し、止まっていれば再度Playを叩く
     setTimeout(() => {
-        if (gen === playGeneration) {
-            if ('mediaSession' in navigator) {
-                navigator.mediaSession.metadata = new MediaMetadata({
-                    title: fullTitle,
-                    artist: track.artist || "Unknown",
-                    album: "Cloud Jukebox",
-                    artwork: [{ src: cover, sizes: '512x512', type: 'image/png' }]
-                });
-            }
-
-            const titleEl = document.getElementById('now-playing-title');
-            const artistEl = document.getElementById('now-playing-artist');
-            if (titleEl) titleEl.innerText = fullTitle;
-            if (artistEl) artistEl.innerText = track.artist || "";
-            
-            updateStatus('Playing: ' + track.title);
-            if (typeof updateMarquee === 'function') updateMarquee();
-            
-            // v103: 全件ループを廃止し、ピンポイントでクラスを更新
-            if (prevIndex !== -1) {
-                const prevLi = document.getElementById(`track-${prevIndex}`);
-                if (prevLi) prevLi.classList.remove('playing');
-            }
-            const activeLi = document.getElementById(`track-${index}`);
-            if (activeLi) activeLi.classList.add('playing');
+        const audio = Amplitude.getAudio ? Amplitude.getAudio() : document.querySelector('audio');
+        if (audio && audio.paused && !isLoadingTrack) {
+            console.log(`[Gen ${gen}] Playback seems stalled. Nudging play...`);
+            Amplitude.play();
         }
     }, 500);
 
-    isLoadingTrack = false;
-    isNextTrackPending = false;
+    // 3. ブラウザのAudioタグにイベントをセット
+    const audio = Amplitude.getAudio ? Amplitude.getAudio() : document.querySelector('audio');
+    if (audio) {
+        Logger.monitorAudio(audio);
+        audio.onended = () => {
+            // 【重要】このイベントが発生した時の世代が、現在の世代と一致する場合のみ次へ
+            // v89: isNextTrackPendingも確認して setInterval との二重発火を防ぐ
+            if (playGeneration === gen && !isNextTrackPending) {
+                console.log(`[Gen ${gen}] Native Audio Ended. Triggering next track...`);
+                isLoadingTrack = false;
+                playNextTrack();
+            } else if (playGeneration === gen && isNextTrackPending) {
+                console.warn(`[Gen ${gen}] Native Audio Ended but skipped (isNextTrackPending=true, already handled).`);
+            } else {
+                console.warn(`[Gen ${gen}] Native Audio Ended but ignored (New gen ${playGeneration} is active).`);
+            }
+        };
+    }
 
-    // --- 4. 監視タイマー (v103: 標準的な周期に戻す) ---
+    // --- Media Session API (ロック画面制御) ---
+    if ('mediaSession' in navigator) {
+        const fullTitle = track.version ? `${track.title} (${track.version})` : track.title;
+        navigator.mediaSession.metadata = new MediaMetadata({
+            title: fullTitle,
+            artist: track.artist || "Unknown",
+            album: "Cloud Jukebox",
+            artwork: [
+                { src: cover, sizes: '512x512', type: 'image/png' }
+            ]
+        });
+
+        navigator.mediaSession.setActionHandler('play', async () => {
+            console.log("[MediaSession] User clicked 'Play' from OS controls");
+            try {
+                await Amplitude.play();
+                navigator.mediaSession.playbackState = "playing";
+            } catch (err) {
+                console.error("MediaSession Play Error:", err);
+            }
+        });
+        navigator.mediaSession.setActionHandler('pause', () => {
+            console.log("[MediaSession] User clicked 'Pause' from OS controls");
+            try {
+                Amplitude.pause();
+                navigator.mediaSession.playbackState = "paused";
+            } catch (err) {
+                console.error("MediaSession Pause Error:", err);
+            }
+        });
+        navigator.mediaSession.setActionHandler('previoustrack', () => {
+            console.log("[MediaSession] User clicked 'Previous' from OS controls");
+            const prevIndex = findValidTrackIndex(currentTrackIndex - 1, -1);
+            if (prevIndex !== -1) {
+                playWithAmplitude(prevIndex);
+            } else {
+                // 有効な前曲がない場合は、リピートオフなら最初へ、オンなら最後へ（findValidで処理済み）
+                playWithAmplitude(0);
+            }
+        });
+        navigator.mediaSession.setActionHandler('nexttrack', () => {
+            console.log("[MediaSession] User clicked 'Next' from OS controls");
+            playNextTrack();
+        });
+    }
+
+    // --- UI更新 ---
+    const titleEl = document.getElementById('now-playing-title');
+    const artistEl = document.getElementById('now-playing-artist');
+    if (titleEl) {
+        titleEl.innerText = fullTitle;
+        delete titleEl.dataset.originalText;
+    }
+    if (artistEl) {
+        artistEl.innerText = track.artist || "";
+        delete artistEl.dataset.originalText;
+    }
+
+    if (typeof updateMarquee === 'function') updateMarquee();
+
+    document.querySelectorAll('#track_list li').forEach(el => el.classList.remove('playing'));
+    const activeLi = document.getElementById(`track-${index}`);
+    if (activeLi) activeLi.classList.add('playing');
+
+    updateStatus('Playing');
+    isLoadingTrack = false;
+    isNextTrackPending = false; // v61: 次曲遷移の二重呼び出し防止フラグをリセット
+
+    console.log(`[Gen ${gen}] Starting prefetch...`);
+    prefetchNextTrack(index);
+
+    // --- 最終手段：監視タイマー ---
+    // v91: timerIdをローカルに保持し、clearInterval(window.autoNextTimer)バグを修正。
+    // 旧実装では「自分自身」でなく「現在のグローバル参照」を消していたため、
+    // 複数タイマーが存在する場合に誤ったタイマーを破棄していた。
     if (window.autoNextTimer) {
         clearInterval(window.autoNextTimer);
         window.autoNextTimer = null;
     }
     let autoNextTimerId;
     autoNextTimerId = window.autoNextTimer = setInterval(() => {
+        // 【重要】世代が古くなっていたら「このタイマー自身」を確実に破棄
         if (playGeneration !== gen) {
             clearInterval(autoNextTimerId);
+            if (window.autoNextTimer === autoNextTimerId) window.autoNextTimer = null;
             return;
         }
 
-        const audio = getRealAudio();
+        const audio = Amplitude.getAudio ? Amplitude.getAudio() : document.querySelector('audio');
         if (audio && !audio.paused && audio.duration > 0) {
             const timeLeft = audio.duration - audio.currentTime;
+            // v89: isNextTrackPendingも確認して onended との二重発火を防ぐ
             if (timeLeft < 0.5 && timeLeft > 0 && !isNextTrackPending) {
+                console.log(`[Gen ${gen}] Timer detected end. Forcing next...`);
                 clearInterval(autoNextTimerId);
+                if (window.autoNextTimer === autoNextTimerId) window.autoNextTimer = null;
                 isLoadingTrack = false;
-                setTimeout(() => playNextTrack(), 50);
+                playNextTrack();
+            } else if (timeLeft < 0.5 && timeLeft > 0 && isNextTrackPending) {
+                console.log(`[Gen ${gen}] Timer detected end but skipped (isNextTrackPending=true, already handled).`);
             }
         }
     }, 300);
