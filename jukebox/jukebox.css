@@ -367,8 +367,8 @@ body {
 }
 
 /* 前後ボタン (28px: 少し大きめに調整) */
-.amplitude-prev,
-.amplitude-next {
+.control-prev,
+.control-next {
     cursor: pointer;
     width: 28px !important;
     height: 28px !important;
@@ -377,8 +377,8 @@ body {
     justify-content: center;
 }
 
-.amplitude-prev svg,
-.amplitude-next svg {
+.control-prev svg,
+.control-next svg {
     width: 100% !important;
     height: 100% !important;
     fill: #FFF;

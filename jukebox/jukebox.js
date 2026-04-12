@@ -13,6 +13,8 @@ let nextTrackIndex = -1;
 let nextBlobUrl = null;
 let nextCoverUrl = null;
 let isPrefetching = false;
+let playbackAbortController = null; // v92: 再生中ダウンロードの中断用
+let prefetchAbortController = null; // v92: 先読み中ダウンロードの中断用
 let isShuffleOn = false;
 let isRepeatOn = false;
 let playGeneration = 0; // 世代管理：古い再生予約をキャンセルするため
@@ -46,6 +48,7 @@ const MetadataQueue = {
     pending: [],
     running: 0,
     maxConcurrent: 1, // v47: データベースのロックを避けるため並列数を1に制限
+    isPaused: false, // v92: 楽曲ダウンロード中の帯域確保用
     enqueuedIds: new Set(), // v90: 同じfile.idの重複エンキューを防ぐ
     // v90: fileId引数を追加。指定すると重複チェックが行われる。
     add(task, fileId = null) {
@@ -78,12 +81,21 @@ const MetadataQueue = {
             }
         });
     },
+    pause() {
+        this.isPaused = true;
+        console.log("[MetadataQueue] Paused.");
+    },
+    resume() {
+        this.isPaused = false;
+        console.log("[MetadataQueue] Resumed.");
+        this.next();
+    },
     next() {
-        if (this.running >= this.maxConcurrent || this.pending.length === 0) {
+        if (this.isPaused || this.running >= this.maxConcurrent || this.pending.length === 0) {
             return;
         }
 
-        while (this.running < this.maxConcurrent && this.pending.length > 0) {
+        while (!this.isPaused && this.running < this.maxConcurrent && this.pending.length > 0) {
             this.running++;
             const task = this.pending.shift();
             // console.log(`MetadataQueue: starting task. Running: ${this.running}, Pending: ${this.pending.length}`);
@@ -744,6 +756,8 @@ window.addEventListener('focus', syncUI);
 /**
  * トークンの有効期限をチェックし、必要であればサイレントリフレッシュを行う (v63: 非同期対応)
  */
+let refreshPromise = null; // v92: デッドロック防止用のPromise管理
+
 async function ensureValidToken(isBackground = false, forceRefresh = false) {
     const storedToken = localStorage.getItem('gdrive_token');
     const now = Date.now();
@@ -762,7 +776,7 @@ async function ensureValidToken(isBackground = false, forceRefresh = false) {
                 needsRefresh = true;
                 tokenIsMandatory = true;
             } else if (remainingMs < 300000) {
-                // 本番設定: 残り5分を切ったら更新（予備の更新なので mandatory ではない）
+                // 本番設定: 残り5分を切ったら更新
                 needsRefresh = true;
                 tokenIsMandatory = false;
             }
@@ -778,16 +792,16 @@ async function ensureValidToken(isBackground = false, forceRefresh = false) {
             console.log(`[Auth] Token refresh triggered (force=${forceRefresh}, mandatory=${tokenIsMandatory}).`);
         }
 
-        if (tokenResolve) {
-            console.log("[Auth] Wait for existing token exchange/refresh...");
-            await new Promise((res) => {
-                const check = () => {
-                    if (!tokenResolve) res();
-                    else setTimeout(check, 100);
-                };
-                check();
-            });
-            return;
+        // v92: 進行中のリフレッシュがあればそれを待つ（ポーリングを廃止）
+        if (refreshPromise) {
+            console.log("[Auth] Waiting for existing refreshPromise...");
+            try {
+                await refreshPromise;
+                return;
+            } catch (err) {
+                if (tokenIsMandatory) throw err;
+                return;
+            }
         }
 
         const storedTokenDataString = localStorage.getItem('gdrive_token');
@@ -796,66 +810,73 @@ async function ensureValidToken(isBackground = false, forceRefresh = false) {
 
         if (refreshToken) {
             if (!isBackground || forceRefresh) updateStatus("Refreshing authorization via proxy...");
-            return new Promise((resolve, reject) => {
-                tokenResolve = resolve;
-                tokenReject = reject;
 
-                // v86: Proxy fetch retry
-                const fetchWithRetry = async (url, options, maxRetry = 3) => {
-                    for (let i = 1; i <= maxRetry; i++) {
-                        try {
-                            console.log(`[Auth] Proxy fetch start: action=refresh (Attempt ${i}/${maxRetry})`);
-                            const res = await fetch(url, options);
-                            return res;
-                        } catch (err) {
-                            if (i === maxRetry) throw err;
-                            console.warn(`[Auth] Proxy fetch attempt ${i} failed, retrying in ${i * 500}ms...`, err);
-                            await new Promise(r => setTimeout(r, i * 500));
-                        }
-                    }
-                };
+            // refreshPromise を作成して後続の呼び出しが待てるようにする
+            refreshPromise = (async () => {
+                try {
+                    // v92: Proxy fetch retry with strict timeout
+                    const fetchWithRetry = async (url, options, maxRetry = 3) => {
+                        for (let i = 1; i <= maxRetry; i++) {
+                            const controller = new AbortController();
+                            const timeoutId = setTimeout(() => controller.abort(), 20000); // 20秒で強制中断
 
-                fetchWithRetry('./auth_proxy.cgi', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'refresh', refresh_token: refreshToken })
-                })
-                    .then(res => {
-                        console.log(`[Auth] Proxy fetch status: ${res.status} ${res.statusText}`);
-                        return res.json();
-                    })
-                    .then(data => {
-                        if (data.access_token) {
-                            const now = Date.now();
-                            const expiresAt = now + (data.expires_in * 1000);
-                            localStorage.setItem('gdrive_token', JSON.stringify({
-                                access_token: data.access_token,
-                                refresh_token: refreshToken, // 引き継ぐ
-                                expires_at: expiresAt
-                            }));
-                            gapi.client.setToken({ access_token: data.access_token });
-                            console.log(`[Auth] Token refreshed successfully via proxy. Valid for ${data.expires_in}s. (Snippet: ${data.access_token.substring(0, 5)}...)`);
-                            if (tokenResolve) tokenResolve();
-                        } else {
-                            console.error("[Auth] Proxy returned JSON error:", data);
-                            throw new Error(data.error || "Failed to refresh token via proxy");
+                            try {
+                                console.log(`[Auth] Proxy fetch start: action=refresh (Attempt ${i}/${maxRetry})`);
+                                const res = await fetch(url, { ...options, signal: controller.signal });
+                                return res;
+                            } catch (err) {
+                                if (err.name === 'AbortError') {
+                                    console.warn(`[Auth] Proxy fetch timed out (Attempt ${i}/${maxRetry})`);
+                                }
+                                if (i === maxRetry) throw err;
+                                await new Promise(r => setTimeout(r, i * 500));
+                            } finally {
+                                clearTimeout(timeoutId);
+                            }
                         }
-                    })
-                    .catch(err => {
-                        console.error("[Auth] Proxy refresh failed:", err);
-                        if (tokenIsMandatory) {
-                            if (tokenReject) tokenReject(err);
-                            updateStatus("Auth failed. Re-authentication required.");
-                        } else {
-                            console.warn("[Auth] Pre-emptive refresh via proxy failed, continuing with current token.");
-                            if (tokenResolve) tokenResolve();
-                        }
-                    })
-                    .finally(() => {
-                        tokenResolve = null;
-                        tokenReject = null;
+                    };
+
+                    const res = await fetchWithRetry('./auth_proxy.cgi', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'refresh', refresh_token: refreshToken })
                     });
-            });
+
+                    console.log(`[Auth] Proxy fetch status: ${res.status} ${res.statusText}`);
+                    const data = await res.json();
+
+                    if (data.access_token) {
+                        const now = Date.now();
+                        const expiresAt = now + (data.expires_in * 1000);
+                        localStorage.setItem('gdrive_token', JSON.stringify({
+                            access_token: data.access_token,
+                            refresh_token: refreshToken,
+                            expires_at: expiresAt
+                        }));
+                        gapi.client.setToken({ access_token: data.access_token });
+                        console.log(`[Auth] Token refreshed successfully via proxy. Valid for ${data.expires_in}s.`);
+                    } else {
+                        console.error("[Auth] Proxy returned JSON error:", data);
+                        throw new Error(data.error || "Failed to refresh token via proxy");
+                    }
+                } catch (err) {
+                    console.error("[Auth] Proxy refresh failed:", err);
+                    throw err;
+                } finally {
+                    refreshPromise = null; // 必ずリセットして次の試行を可能にする
+                }
+            })();
+
+            try {
+                await refreshPromise;
+            } catch (err) {
+                if (tokenIsMandatory) {
+                    updateStatus("Auth failed. Re-authentication required.");
+                    throw err;
+                } else {
+                    console.warn("[Auth] Pre-emptive refresh failed, continuing with current token.");
+                }
+            }
         } else {
             console.warn("[Auth] No refresh token found in storage.");
             if (tokenIsMandatory) {
@@ -863,8 +884,6 @@ async function ensureValidToken(isBackground = false, forceRefresh = false) {
                 authBtn.style.display = 'block';
                 authBtn.disabled = false;
                 throw new Error("No refresh token available");
-            } else {
-                console.warn("[Auth] Continuing with potentially expired token...");
             }
         }
     }
@@ -875,15 +894,47 @@ async function ensureValidToken(isBackground = false, forceRefresh = false) {
  */
 async function fetchUserInfo() {
     try {
-        if (!gapi.client.drive) return;
-        const res = await gapi.client.drive.about.get({ fields: 'user' });
-        if (res.result.user && res.result.user.emailAddress) {
-            localStorage.setItem('gdrive_user_email', res.result.user.emailAddress);
-            console.log("[Auth] Stored user email for hint:", res.result.user.emailAddress);
+        await ensureValidToken(true);
+        const tokenData = JSON.parse(localStorage.getItem('gdrive_token'));
+        if (!tokenData) return;
+        
+        const res = await fetch('https://www.googleapis.com/drive/v3/about?fields=user', {
+            headers: { 'Authorization': 'Bearer ' + tokenData.access_token }
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.user && data.user.emailAddress) {
+            localStorage.setItem('gdrive_user_email', data.user.emailAddress);
+            console.log("[Auth] Stored user email for hint:", data.user.emailAddress);
         }
     } catch (e) {
         console.warn("[Auth] Failed to fetch user info for hint:", e);
     }
+}
+
+/**
+ * v93: GAPIを使わずにファイルを検索する (AbortController対応)
+ */
+async function googleDriveSearchFetch(fileName, signal) {
+    return await authorizedRequest(async () => {
+        const tokenData = JSON.parse(localStorage.getItem('gdrive_token'));
+        const q = encodeURIComponent(`name = '${fileName.replace(/'/g, "\\'")}' and trashed = false`);
+        const fields = encodeURIComponent('files(id)');
+        const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=${fields}&pageSize=1`;
+
+        const res = await fetch(url, {
+            headers: { 'Authorization': 'Bearer ' + tokenData.access_token },
+            signal: signal
+        });
+
+        if (!res.ok) {
+            if (res.status === 401) throw { status: 401 };
+            throw new Error(`Search failed with status: ${res.status}`);
+        }
+
+        const data = await res.json();
+        return (data.files && data.files.length > 0) ? data.files[0].id : null;
+    });
 }
 
 async function checkTokenExpiry() {
@@ -904,6 +955,11 @@ async function authorizedRequest(requestFunc) {
         const res = await requestFunc();
         return res;
     } catch (err) {
+        // v92: AbortError は予定された中断なのでエラーログを出さずに再スロー
+        if (err.name === 'AbortError') {
+            throw err;
+        }
+
         const errorCode = (err.result && err.result.error && err.result.error.code) || err.status || 'unknown';
 
         // 401 (Unauthorized) または Code -1 (Network Error on Android)
@@ -1483,26 +1539,46 @@ async function findTracksFolder(yearId, yearName) {
                     // console.log("Starting background metadata fetch:", file.name);
 
                     // v51.1/v63: 8秒で一度諦める。ただし一度だけリトライ。認証付与。
+                    // v93: fetch API に切り替えて AbortController で物理的に中断可能にする
                     const fetchMeta = async (fileId, timeoutMs) => {
-                        return authorizedRequest(() => withTimeout(gapi.client.request({
-                            path: `https://www.googleapis.com/drive/v3/files/${fileId}`,
-                            params: { alt: 'media' }
-                        }), timeoutMs, "Fetch " + file.name));
+                        const controller = new AbortController();
+                        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+                        try {
+                            return await authorizedRequest(async () => {
+                                const tokenData = JSON.parse(localStorage.getItem('gdrive_token'));
+                                const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+                                    headers: { 'Authorization': 'Bearer ' + tokenData.access_token },
+                                    signal: controller.signal
+                                });
+                                if (!res.ok) {
+                                    if (res.status === 401) throw { status: 401 };
+                                    throw new Error(`Fetch failed with status: ${res.status}`);
+                                }
+                                return await res.json();
+                            });
+                        } catch (err) {
+                            if (err.name === 'AbortError') {
+                                throw new Error(`Fetch ${file.name} Timeout`);
+                            }
+                            throw err;
+                        } finally {
+                            clearTimeout(timeoutId);
+                        }
                     };
 
-                    let jData;
-                    const maxRetries = 10;
+                    let d;
+                    const maxRetries = 3;
                     for (let i = 1; i <= maxRetries; i++) {
                         try {
-                            // v83: モバイル環境のためにタイムアウトを緩和
-                            const timeoutMs = (i === 1) ? 15000 : 12000;
+                            // v93: プレイリストJSONは意外と大きい(1MB超)ことがあるため、タイムアウトを25秒に緩和
+                            const timeoutMs = 25000;
 
-                            // v83: リトライ時は少し待機（バックオフ）
                             if (i > 1) {
-                                await new Promise(r => setTimeout(r, i * 500));
+                                await new Promise(r => setTimeout(r, i * 1000));
                             }
 
-                            jData = await fetchMeta(file.id, timeoutMs);
+                            d = await fetchMeta(file.id, timeoutMs);
                             console.log(`[Success] Background fetch metadata for: ${file.name} (Attempt ${i}/${maxRetries})`);
                             break;
                         } catch (e) {
@@ -1510,15 +1586,8 @@ async function findTracksFolder(yearId, yearName) {
                                 console.error(`[Give up] Background fetch failed after ${maxRetries} attempts for file: ${file.name} (ID: ${file.id})`);
                                 return;
                             }
-                            console.warn(`[Retry] Background fetch timeout or error, retrying (${i}/${maxRetries}) for: ${file.name}`);
+                            console.warn(`[Retry] Background fetch timeout or error, retrying (${i}/${maxRetries}) for: ${file.name}`, e.message);
                         }
-                    }
-
-                    // console.log("Received metadata response for:", file.name);
-
-                    let d = jData.result;
-                    if (typeof d === 'string') {
-                        try { d = JSON.parse(d); } catch (e) { console.error("JSON Parse Error:", e); return; }
                     }
 
                     if (d && d.chart) {
@@ -1926,8 +1995,17 @@ function findValidTrackIndex(startIndex, direction = 1) {
  * Blob URL を変数に保持しておく。
  */
 async function prefetchNextTrack(currentIndex) {
-    if (isPrefetching) return;
+    let track = null; // v93: catchブロックでもアクセスできるように関数スコープで定義
+    if (isPrefetching) {
+        // v92: すでに先読み中なら中断させて新しく開始する（重複実行ガードではなく優先度制御へ）
+        if (prefetchAbortController) {
+            console.log("[Prefetch] Aborting current prefetch to start new one.");
+            prefetchAbortController.abort();
+        }
+    }
     isPrefetching = true;
+    prefetchAbortController = new AbortController();
+    const signal = prefetchAbortController.signal;
 
     try {
         let targetIndex = -1;
@@ -1957,7 +2035,7 @@ async function prefetchNextTrack(currentIndex) {
             return;
         }
 
-        const track = currentPlaylist[targetIndex];
+        track = currentPlaylist[targetIndex];
         const fileName = track.mp3_file.split('/').pop();
         console.log(`Prefetching start: ${track.title} (${fileName})`);
         updateStatus(`⏳ Pre-fetching: ${track.title}`);
@@ -1966,15 +2044,17 @@ async function prefetchNextTrack(currentIndex) {
         let targetId = await JukeboxDB.getFileId(fileName);
 
         if (!targetId) {
-            // 2. キャッシュになければ Google Drive からファイルIDを特定 (v63: 認証追加)
-            const fRes = await authorizedRequest(() => gapi.client.drive.files.list({
-                q: `name = '${fileName.replace(/'/g, "\\'")}' and trashed = false`,
-                fields: 'files(id)', pageSize: 1
-            }));
-
-            if (fRes.result.files && fRes.result.files.length > 0) {
-                targetId = fRes.result.files[0].id;
-                await JukeboxDB.setFileId(fileName, targetId);
+            // 2. キャッシュになければ Google Drive からファイルIDを特定 (AbortController対応)
+            try {
+                targetId = await googleDriveSearchFetch(fileName, signal);
+                if (targetId) {
+                    await JukeboxDB.setFileId(fileName, targetId);
+                }
+            } catch (err) {
+                if (err.name === 'AbortError') throw err;
+                console.warn("[Prefetch] Search failed:", err);
+                isPrefetching = false;
+                return;
             }
         }
 
@@ -1983,17 +2063,23 @@ async function prefetchNextTrack(currentIndex) {
             const memBefore = performance.memory ? (performance.memory.usedJSHeapSize / 1024 / 1024).toFixed(1) : 'N/A';
             const startMs = performance.now();
 
+            MetadataQueue.pause(); // 巨大ファイルのDL中はメタデータ取得を一時停止
             const blob = await authorizedRequest(async () => {
                 const tokenData = JSON.parse(localStorage.getItem('gdrive_token'));
                 const res = await fetch(`https://www.googleapis.com/drive/v3/files/${targetId}?alt=media`, {
-                    headers: { 'Authorization': 'Bearer ' + tokenData.access_token }
+                    headers: { 'Authorization': 'Bearer ' + tokenData.access_token },
+                    signal: signal // v92: 中断信号を渡す
                 });
                 if (!res.ok) {
                     if (res.status === 401) throw { status: 401 };
                     throw new Error(`Fetch failed with status: ${res.status}`);
                 }
                 return await res.blob();
+            }).finally(() => {
+                MetadataQueue.resume();
             });
+
+            if (signal.aborted) throw { name: 'AbortError' };
 
             const endMs = performance.now();
             const memAfter = performance.memory ? (performance.memory.usedJSHeapSize / 1024 / 1024).toFixed(1) : 'N/A';
@@ -2025,6 +2111,11 @@ async function prefetchNextTrack(currentIndex) {
                 console.log("Prefetch: Cover art extraction skipped.");
             }
 
+            if (signal.aborted) {
+                if (coverUrl.startsWith('blob:')) URL.revokeObjectURL(coverUrl);
+                throw { name: 'AbortError' };
+            }
+
             nextCoverUrl = coverUrl;
             console.log(`Prefetch complete: ${track.title}`);
             updateStatus(`✅ Pre-fetched: ${track.title}`);
@@ -2049,6 +2140,10 @@ async function prefetchNextTrack(currentIndex) {
             }, 3000);
         }
     } catch (e) {
+        if (e.name === 'AbortError') {
+            console.log(`[Prefetch] Prefetch aborted for track: ${track ? track.title : 'unknown'}`);
+            return; 
+        }
         console.error(`[Prefetch] Failed to prefetch track '${track ? track.title : 'unknown'}':`, e);
         updateStatus(`⚠️ Pre-fetch error: ${track ? track.title : 'unknown'}`);
         setTimeout(() => {
@@ -2061,6 +2156,7 @@ async function prefetchNextTrack(currentIndex) {
         }, 3000);
     } finally {
         isPrefetching = false;
+        prefetchAbortController = null;
     }
 }
 
@@ -2123,6 +2219,19 @@ async function playWithAmplitude(index) {
     // 世代を進める（古いタイマーやイベントからの呼び出しを無効化する）
     const thisGen = ++playGeneration;
 
+    // v92: 前の再生・先読みダウンロードがあれば即座に中断する
+    if (playbackAbortController) {
+        console.log(`[Gen ${thisGen}] Aborting previous playback download...`);
+        playbackAbortController.abort();
+    }
+    if (prefetchAbortController) {
+        console.log(`[Gen ${thisGen}] Aborting previous prefetch download...`);
+        prefetchAbortController.abort();
+    }
+
+    playbackAbortController = new AbortController();
+    const signal = playbackAbortController.signal;
+
     // 前の曲の監視タイマーとイベントを即座に破棄
     if (window.autoNextTimer) {
         clearInterval(window.autoNextTimer);
@@ -2159,8 +2268,6 @@ async function playWithAmplitude(index) {
 
         // --- 2. 先読み(Prefetch)済みのURLがあるかチェック ---
         if (index === nextTrackIndex && nextBlobUrl) {
-
-
             if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
             currentBlobUrl = nextBlobUrl;
             const coverUrl = nextCoverUrl;
@@ -2182,45 +2289,40 @@ async function playWithAmplitude(index) {
         let targetId = await JukeboxDB.getFileId(fileName);
 
         if (!targetId) {
-            updateStatus(`Searching: ${fileName}`);
-
-            // v50: タイムアウト付きの検索 (10秒) / v63: 認証追加
-            const searchDrive = async () => {
-                const fRes = await authorizedRequest(() => gapi.client.drive.files.list({
-                    q: `name = '${fileName.replace(/'/g, "\\'")}' and trashed = false`,
-                    fields: 'files(id)', pageSize: 1
-                }));
-                return (fRes.result.files && fRes.result.files.length > 0) ? fRes.result.files[0].id : null;
-            };
-
-
+            // v93: 15秒で一度諦める。ただし一度だけリトライ。認証付与。
             try {
-                targetId = await withTimeout(searchDrive(), 10000, "Search Drive " + fileName);
+                targetId = await withTimeout(googleDriveSearchFetch(fileName, signal), 15000, "Search Drive " + fileName);
                 if (targetId) {
                     await JukeboxDB.setFileId(fileName, targetId);
                 }
             } catch (err) {
+                if (err.name === 'AbortError') throw err;
                 console.error(`[Search] File query failed for '${fileName}':`, err);
                 updateStatus("Search Timeout. Retrying...");
                 // 1回だけリトライ
                 await new Promise(r => setTimeout(r, 2000));
                 try {
-                    targetId = await withTimeout(searchDrive(), 15000, "Search Drive (Deep) " + fileName);
+                    targetId = await withTimeout(googleDriveSearchFetch(fileName, signal), 20000, "Search Drive (Deep) " + fileName);
                     if (targetId) await JukeboxDB.setFileId(fileName, targetId);
                 } catch (e2) {
+                    if (e2.name === 'AbortError') throw e2;
                     console.error(`[Search] Retry also failed for '${fileName}':`, e2);
                 }
             }
         }
 
+        if (signal.aborted) throw { name: 'AbortError' };
+
         if (targetId) {
             updateStatus(`Downloading: ${track.title}`);
 
+            MetadataQueue.pause(); // ダウンロード中はメタデータ取得を一時停止
             const fetchFile = async () => {
                 return await authorizedRequest(async () => {
                     const tokenData = JSON.parse(localStorage.getItem('gdrive_token'));
                     const res = await fetch(`https://www.googleapis.com/drive/v3/files/${targetId}?alt=media`, {
-                        headers: { 'Authorization': 'Bearer ' + tokenData.access_token }
+                        headers: { 'Authorization': 'Bearer ' + tokenData.access_token },
+                        signal: signal // v92: 中断信号を渡す
                     });
                     if (!res.ok) {
                         if (res.status === 401) throw { status: 401 };
@@ -2237,13 +2339,19 @@ async function playWithAmplitude(index) {
             const startMs = performance.now();
             try {
                 // v50: ダウンロードにもタイムアウト (30秒)
-                blob = await Promise.race([fetchFile(), downloadTimeout(30000)]);
+                blob = await Promise.race([fetchFile(), downloadTimeout(30000)]).finally(() => {
+                    MetadataQueue.resume(); // 通信終了もしくは中断で再開
+                });
             } catch (err) {
+                if (err.name === 'AbortError') throw err;
                 console.error(`[Download] File download failed for '${track.title}' (FileID: ${targetId}):`, err);
                 updateStatus(`Download Timeout: ${track.title}`);
                 isLoadingTrack = false;
                 return;
             }
+
+            if (signal.aborted) throw { name: 'AbortError' };
+
             const endMs = performance.now();
             const memAfter = performance.memory ? (performance.memory.usedJSHeapSize / 1024 / 1024).toFixed(1) : 'N/A';
             console.log(`[Performance] Fetch Playback taking ${Math.round(endMs - startMs)}ms. Heap: ${memBefore}MB -> ${memAfter}MB`);
@@ -2269,8 +2377,9 @@ async function playWithAmplitude(index) {
             } catch (e) { console.log("Cover art extraction skipped."); }
 
             // 【重要】再生ボタン押下などで新しい世代が割り込んでいないか最終チェック
-            if (playGeneration !== thisGen) {
-                console.warn(`[Gen ${thisGen}] Interrupted before startPlayback. Aborting.`);
+            if (playGeneration !== thisGen || signal.aborted) {
+                console.warn(`[Gen ${thisGen}] Interrupted or aborted before startPlayback. Aborting.`);
+                if (coverUrl.startsWith('blob:')) URL.revokeObjectURL(coverUrl);
                 return;
             }
 
@@ -2285,9 +2394,17 @@ async function playWithAmplitude(index) {
             playNextTrack();
         }
     } catch (e) {
+        if (e.name === 'AbortError') {
+            console.log(`[Gen ${thisGen}] Playback download aborted.`);
+            return;
+        }
         console.error("Playback flow error:", e);
         updateStatus("Error: " + e.message);
         isLoadingTrack = false;
+    } finally {
+        if (playGeneration === thisGen) {
+            playbackAbortController = null;
+        }
     }
 }
 
@@ -2309,10 +2426,21 @@ function startPlayback(index, url, cover, gen) {
 
     // 2. スマホ等での再生失敗対策：少し後に再生状態を確認し、止まっていれば再度Playを叩く
     setTimeout(() => {
+        // v93: 世代が古くなっていたら無視する（デッドロック/エラー防止）
+        if (playGeneration !== gen) return;
+
         const audio = Amplitude.getAudio ? Amplitude.getAudio() : document.querySelector('audio');
         if (audio && audio.paused && !isLoadingTrack) {
             console.log(`[Gen ${gen}] Playback seems stalled. Nudging play...`);
-            Amplitude.play();
+            try {
+                // v93: 再生対象が正しいか念のため確認
+                const activeIndex = Amplitude.getActiveIndex();
+                if (activeIndex === index) {
+                    Amplitude.play();
+                }
+            } catch (e) {
+                console.warn(`[Gen ${gen}] Nudge failed:`, e);
+            }
         }
     }, 500);
 
