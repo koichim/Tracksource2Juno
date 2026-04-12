@@ -1,6 +1,6 @@
 {
   "name": "Cloud Jukebox",
-  "version": "v113",
+  "version": "v116",
   "short_name": "Jukebox",
   "description": "A Google Drive powered music player",
   "start_url": "./jukebox.html",

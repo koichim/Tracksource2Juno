@@ -28,6 +28,8 @@ const REFLECTION_TIME_DAYS = 15; // v35: 15日間
 const REFLECTION_TIME_MS = REFLECTION_TIME_DAYS * 24 * 60 * 60 * 1000;
 let currentIsNewPlaylist = false; // v42: 現在のプレイリストが「新着」か
 let currentNewMp3s = new Set();    // v42: 🆙プレイリスト内で新しく追加された曲のセット
+let lastSaveTime = 0;              // v95: レジューム用の保存タイミング管理
+let resumeState = null;            // v95: 起動時のレジューム状態
 
 /**
  * Promiseにタイムアウト制限を設けるヘルパー
@@ -664,6 +666,28 @@ const getRealAudio = () => {
     return audio;
 };
 
+/**
+ * v95: 再生状態を localStorage に保存する（レジューム用）
+ */
+function savePlaybackState() {
+    try {
+        const audio = getRealAudio();
+        if (!audio || !selector.value || currentTrackIndex === -1) return;
+
+        // 再生状態を保存
+        const state = {
+            playlistValue: selector.value,
+            trackIndex: currentTrackIndex,
+            currentTime: audio.currentTime,
+            paused: audio.paused, // v96: 停止状態も保存
+            timestamp: Date.now()
+        };
+        localStorage.setItem('jukebox_resume_state', JSON.stringify(state));
+    } catch (e) {
+        console.warn("[Resume] Failed to save playback state:", e);
+    }
+}
+
 // --- グローバル同期 (v12.0: どんなエラーがあっても止まらないように最上部で定義) ---
 const syncUI = () => {
     try {
@@ -745,6 +769,17 @@ const syncUI = () => {
         if (appVersionEl) appVersionEl.innerText = version;
     } catch (err) {
         console.error("[UI] syncUI failed to update playback state:", err);
+    }
+
+    // v95: 1秒ごとに再生状態を保存
+    const now = Date.now();
+    if (now - lastSaveTime >= 1000) {
+        lastSaveTime = now;
+        const audio = getRealAudio();
+        // v96: 停止中でも保存するように変更（ただしソースがある場合のみ）
+        if (audio && audio.src && audio.src.length > 10) {
+            savePlaybackState();
+        }
     }
 };
 
@@ -1033,6 +1068,23 @@ async function initApp() {
     if (isInitAppDone) return;
     isInitAppDone = true;
     Logger.init(); // ロガーを最速で初期化
+
+    // v95: レジューム状態の読み込み
+    try {
+        const saved = localStorage.getItem('jukebox_resume_state');
+        if (saved) {
+            resumeState = JSON.parse(saved);
+            // 1週間以上前のデータなら無効化
+            if (Date.now() - resumeState.timestamp > 7 * 24 * 60 * 60 * 1000) {
+                resumeState = null;
+            } else {
+                console.log("[Resume] Found saved state:", resumeState);
+            }
+        }
+    } catch (e) {
+        console.warn("[Resume] Failed to load saved state:", e);
+    }
+
     updateStatus("Loading Program...");
 
     // jsmediatags の読み込み待機
@@ -1074,6 +1126,7 @@ async function initApp() {
                         // HTML要素の属性を更新。これによりCSSの [amplitude-player-state="playing"] が効くようになる
                         el.setAttribute('amplitude-player-state', state);
                         console.log("Player state changed to:", state);
+                        savePlaybackState(); // v95: 状態変化時に保存
                     }
                 }
                 // v62: song_ended コールバックを削除。
@@ -1325,6 +1378,34 @@ async function findYearFolders(parentId) {
     const playlistBarToggle = document.getElementById('playlist-bar-toggle');
     if (playlistBarToggle) {
         playlistBarToggle.classList.remove('disabled');
+    }
+
+    // v95: レジューム処理
+    if (resumeState && resumeState.playlistValue) {
+        // セレクターに存在するか確認
+        let found = false;
+        for (let i = 0; i < selector.options.length; i++) {
+            if (selector.options[i].value === resumeState.playlistValue) {
+                selector.selectedIndex = i;
+                found = true;
+                break;
+            }
+        }
+        if (found) {
+            updateStatus("Resuming last session...");
+            // カスタムセレクターの表示も同期
+            const selectedOpt = selector.options[selector.selectedIndex];
+            if (playlistSearch) playlistSearch.value = selectedOpt.innerText;
+            renderCustomPlaylistList();
+
+            // プレイリストの読み込みを開始
+            const event = new Event('change');
+            event.isResuming = true; // カスタムフラグ
+            selector.dispatchEvent(event);
+        } else {
+            console.log("[Resume] Saved playlist not found in current list.");
+            resumeState = null;
+        }
     }
 }
 
@@ -1708,6 +1789,25 @@ selector.onchange = async (e) => {
     const fileId = data.id;
     let played = false;
 
+    // v95: レジューム情報の取得
+    let startIdx = 0;
+    let startOffset = 0;
+    let shouldAutoPlay = true; // デフォルトは自動再生
+    if (e.isResuming && resumeState) {
+        startIdx = resumeState.trackIndex;
+        shouldAutoPlay = !resumeState.paused; // 前回停止中なら自動再生しない
+        
+        // 前回再生中なら3秒戻し、停止中ならそのままの時間
+        if (shouldAutoPlay) {
+            startOffset = Math.max(0, resumeState.currentTime - 3);
+        } else {
+            startOffset = resumeState.currentTime;
+        }
+        
+        resumeState = null; // 一度使用したらクリア
+        console.log(`[Resume] Resuming (autoPlay=${shouldAutoPlay}) from track ${startIdx} at ${startOffset}s`);
+    }
+
     // 1. キャッシュから即座に復元
     const cached = await JukeboxDB.get(fileId);
     if (cached && cached.chart) {
@@ -1725,7 +1825,7 @@ selector.onchange = async (e) => {
         renderList();
         showPlayer(data.year);
         // v21: キャッシュがあれば即座に再生開始
-        playWithAmplitude(0);
+        playWithAmplitude(startIdx, startOffset, shouldAutoPlay);
         played = true;
     }
 
@@ -1778,12 +1878,12 @@ selector.onchange = async (e) => {
             showPlayer(data.year);
             // v21: まだ再生していなければ（キャッシュがなかった等）ここで開始
             if (!played) {
-                playWithAmplitude(0);
+                playWithAmplitude(startIdx, startOffset, shouldAutoPlay);
                 played = true;
             }
         } else if (!played) {
             // 内容が同じでも、まだ再生が始まっていなければ開始
-            playWithAmplitude(0);
+            playWithAmplitude(startIdx, startOffset, shouldAutoPlay);
             played = true;
         }
 
@@ -2228,7 +2328,7 @@ function clearPrefetch() {
 }
 
 // 4. 再生 & スキップロジック
-async function playWithAmplitude(index) {
+async function playWithAmplitude(index, startTime = 0, shouldPlay = true) {
     // 世代を進める（古いタイマーやイベントからの呼び出しを無効化する）
     const thisGen = ++playGeneration;
 
@@ -2291,7 +2391,7 @@ async function playWithAmplitude(index) {
             nextTrackIndex = -1;
 
             // 再生開始
-            startPlayback(index, currentBlobUrl, coverUrl, thisGen);
+            startPlayback(index, currentBlobUrl, coverUrl, thisGen, startTime, shouldPlay);
             return; // ここで終了
         }
 
@@ -2397,7 +2497,7 @@ async function playWithAmplitude(index) {
             }
 
             // 再生開始
-            startPlayback(index, currentBlobUrl, coverUrl, thisGen);
+            startPlayback(index, currentBlobUrl, coverUrl, thisGen, startTime);
         } else {
             // ファイルが見つからなかった場合は次の曲へ
             updateStatus(`Not Found: ${fileName}`);
@@ -2421,7 +2521,7 @@ async function playWithAmplitude(index) {
     }
 }
 
-function startPlayback(index, url, cover, gen) {
+function startPlayback(index, url, cover, gen, startTime = 0, shouldPlay = true) {
     const track = currentPlaylist[index];
     if (!track) return;
 
@@ -2435,12 +2535,20 @@ function startPlayback(index, url, cover, gen) {
         url: url,
         cover_art_url: cover
     };
-    Amplitude.playNow(songData);
+    if (shouldPlay) {
+        Amplitude.playNow(songData);
+    } else {
+        // v96: 一時停止で復元する場合、まずセットしてから描画等は手動、または playNow 後に即 pause
+        // Amplitude 5.x では playNow が最も確実なので、一旦 playNow して即座に停止する
+        Amplitude.playNow(songData);
+        setTimeout(() => Amplitude.pause(), 50); // 微小な遅延を置いて確実に止める
+    }
 
     // 2. スマホ等での再生失敗対策：少し後に再生状態を確認し、止まっていれば再度Playを叩く
     setTimeout(() => {
         // v93: 世代が古くなっていたら無視する（デッドロック/エラー防止）
         if (playGeneration !== gen) return;
+        if (!shouldPlay) return; // v96: 意図的な停止なら何もしない
 
         const audio = Amplitude.getAudio ? Amplitude.getAudio() : document.querySelector('audio');
         if (audio && audio.paused && !isLoadingTrack) {
@@ -2449,10 +2557,19 @@ function startPlayback(index, url, cover, gen) {
                 // v93: 再生対象が正しいか念のため確認
                 const activeIndex = Amplitude.getActiveIndex();
                 if (activeIndex === index) {
-                    Amplitude.play();
+                    const playPromise = audio.play();
+                    if (playPromise !== undefined) {
+                        playPromise.catch(e => {
+                            if (e.name === 'NotAllowedError') {
+                                console.warn(`[Gen ${gen}] Autoplay blocked by browser. Reverting to paused state.`);
+                            } else {
+                                console.warn(`[Gen ${gen}] Nudge failed:`, e);
+                            }
+                        });
+                    }
                 }
             } catch (e) {
-                console.warn(`[Gen ${gen}] Nudge failed:`, e);
+                console.warn(`[Gen ${gen}] Nudge threw error:`, e);
             }
         }
     }, 500);
@@ -2474,6 +2591,16 @@ function startPlayback(index, url, cover, gen) {
                 console.warn(`[Gen ${gen}] Native Audio Ended but ignored (New gen ${playGeneration} is active).`);
             }
         };
+
+        // v95: startTime が指定されている場合はシーク
+        if (startTime > 0) {
+            const onCanPlay = () => {
+                console.log(`[Resume] Setting startTime to ${startTime}s`);
+                audio.currentTime = startTime;
+                audio.removeEventListener('canplay', onCanPlay);
+            };
+            audio.addEventListener('canplay', onCanPlay);
+        }
     }
 
     // --- Media Session API (ロック画面制御) ---
@@ -2544,6 +2671,8 @@ function startPlayback(index, url, cover, gen) {
     isLoadingTrack = false;
     isNextTrackPending = false; // v61: 次曲遷移の二重呼び出し防止フラグをリセット
 
+    savePlaybackState(); // v95: 新しい曲が始まった直後にも保存
+
     console.log(`[Gen ${gen}] Starting prefetch...`);
     prefetchNextTrack(index);
 
@@ -2580,6 +2709,7 @@ function startPlayback(index, url, cover, gen) {
         }
     }, 300);
 }
+
 window.initApp = initApp;
 
 // --- End of jukebox.js ---
