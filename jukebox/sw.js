@@ -1,4 +1,4 @@
-const VERSION = new URL(self.location).searchParams.get('v') || 'v107';
+const VERSION = new URL(self.location).searchParams.get('v') || 'v1';
 const CACHE_NAME = 'jukebox-cache-' + VERSION;
 const ASSETS_TO_CACHE = [
   './jukebox.html',
@@ -20,7 +20,12 @@ self.addEventListener('install', event => {
         // addAllは1つでも失敗すると全体が失敗するため、1つずつ個別にキャッシュを試みる（安全策）
         const cachePromises = ASSETS_TO_CACHE.map(async (url) => {
           try {
-            return await cache.add(url);
+            // Force a fresh fetch from the network to bypass browser HTTP cache
+            const request = new Request(url, { cache: 'reload' });
+            const response = await fetch(request);
+            if (response.ok) {
+              return await cache.put(url, response);
+            }
           } catch (error) {
             console.warn(`[SW] Failed to cache asset: ${url}`, error);
           }

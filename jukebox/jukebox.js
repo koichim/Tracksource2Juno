@@ -17,8 +17,8 @@ let isShuffleOn = false;
 let isRepeatOn = false;
 let playGeneration = 0; // 世代管理：古い再生予約をキャンセルするため
 let isInitAppDone = false; // v86: initAppの二重実行ガード
-// v107: 集中管理（manifest.json）から取得したバージョン。未取得時はグローバル変数 or フォールバックを参照
-const getAppVersion = () => window.JUKEBOX_VERSION && window.JUKEBOX_VERSION !== 'loading...' ? window.JUKEBOX_VERSION : "v107";
+// 集中管理（manifest.json）から取得したバージョン。未取得時はグローバル変数 or フォールバックを参照
+const getAppVersion = () => (window.JUKEBOX_VERSION && window.JUKEBOX_VERSION !== 'loading...') ? window.JUKEBOX_VERSION : "unknown";
 const APP_VERSION = getAppVersion(); // 互換性のため一旦定義するが、動的な場所では getAppVersion() を推奨
 let currentPlaylistDate = ""; // v23: 現在のリストの日付
 let currentIsIncomplete = false; // v25: 現在のリストが未完成か
