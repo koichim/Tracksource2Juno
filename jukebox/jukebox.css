@@ -61,6 +61,20 @@ body {
     cursor: pointer;
 }
 
+#playlist-bar-toggle.disabled {
+    cursor: not-allowed;
+    pointer-events: none;
+    opacity: 0.5;
+}
+
+#playlist-bar-toggle.disabled #playlist-status-text {
+    color: #888;
+}
+
+#playlist-bar-toggle.disabled #playlist-arrow {
+    fill: #888;
+}
+
 /* --- 4. プレイリスト本体 (バーの背後をくぐるように設定) --- */
 #track_list {
     display: none;
@@ -542,6 +556,13 @@ button#auth_btn:hover {
     background: #333;
 }
 
+button#auth_btn:disabled {
+    background: #1a1f26;
+    color: #888;
+    border-color: #333;
+    cursor: not-allowed;
+}
+
 /* 10. カスタム検索可能セレクター */
 .custom-select-container {
     width: 100%;
@@ -566,6 +587,17 @@ button#auth_btn:hover {
     background: rgba(255, 255, 255, 0.1);
     border-color: #55b560;
     box-shadow: 0 0 15px rgba(85, 181, 96, 0.2);
+}
+
+.playlist-search-input:disabled {
+    background: rgba(255, 255, 255, 0.03);
+    color: #888;
+    cursor: not-allowed;
+    border-color: rgba(255, 255, 255, 0.05);
+}
+
+.playlist-search-input:disabled::placeholder {
+    color: #666;
 }
 
 .playlist-search-input.marquee-active:not(:focus) {

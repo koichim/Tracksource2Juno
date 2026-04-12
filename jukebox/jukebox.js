@@ -1055,6 +1055,10 @@ async function initApp() {
         playlistSearch.disabled = true;
         playlistSearch.placeholder = "Loading DJ charts...";
     }
+    const playlistBarToggle = document.getElementById('playlist-bar-toggle');
+    if (playlistBarToggle) {
+        playlistBarToggle.classList.add('disabled');
+    }
 
     if (typeof Amplitude !== 'undefined') {
         Amplitude.init({
@@ -1227,6 +1231,10 @@ async function initApp() {
     const statusText = document.getElementById('playlist-status-text');
     const trackListEl = document.getElementById('track_list'); // 直接リストも取得
 
+    if (playlistBar && !discoveryStarted) {
+        playlistBar.classList.add('disabled');
+    }
+
     playlistBar.onclick = () => {
         // クラスを入れ替える
         const isOpen = playerFrame.classList.toggle('playlist-open');
@@ -1313,6 +1321,11 @@ async function findYearFolders(parentId) {
     }
     if (authBtn) authBtn.style.display = 'none';
     if (customSelectContainer) customSelectContainer.style.display = 'block';
+
+    const playlistBarToggle = document.getElementById('playlist-bar-toggle');
+    if (playlistBarToggle) {
+        playlistBarToggle.classList.remove('disabled');
+    }
 }
 
 /**
