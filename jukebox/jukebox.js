@@ -2497,7 +2497,7 @@ async function playWithAmplitude(index, startTime = 0, shouldPlay = true) {
             }
 
             // 再生開始
-            startPlayback(index, currentBlobUrl, coverUrl, thisGen, startTime);
+            startPlayback(index, currentBlobUrl, coverUrl, thisGen, startTime, shouldPlay);
         } else {
             // ファイルが見つからなかった場合は次の曲へ
             updateStatus(`Not Found: ${fileName}`);
