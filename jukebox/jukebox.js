@@ -1326,7 +1326,7 @@ async function startDiscovery() {
         const res = await authorizedRequest(() => withTimeout(gapi.client.drive.files.list({
             q: "name = 'music_backup' and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
             fields: 'files(id)'
-        }), 10000, "Discovery Project Root"));
+        }), 20000, "Discovery Project Root"));
 
         if (res.result.files && res.result.files.length > 0) {
             await findYearFolders(res.result.files[0].id);
@@ -1343,7 +1343,7 @@ async function findYearFolders(parentId) {
     const res = await authorizedRequest(() => withTimeout(gapi.client.drive.files.list({
         q: `'${parentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
         fields: 'files(id, name)'
-    }), 10000, "Listing Year Folders"));
+    }), 20000, "Listing Year Folders"));
     selector.innerHTML = '<option value="">Select DJ Chart...</option>';
     const yearFolders = res.result.files
         .filter(f => f.name.match(/^\d{4}$/) && parseInt(f.name) >= 2023)
@@ -1562,7 +1562,7 @@ async function findTracksFolder(yearId, yearName) {
     const res = await authorizedRequest(() => withTimeout(gapi.client.drive.files.list({
         q: `'${yearId}' in parents and name = 'tracks' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
         fields: 'files(id)'
-    }), 10000, "Finding tracks folder (" + yearName + ")"));
+    }), 20000, "Finding tracks folder (" + yearName + ")"));
 
     // 返り値用の配列
     const results = { favs: [], regs: [] };
@@ -1572,7 +1572,7 @@ async function findTracksFolder(yearId, yearName) {
             q: `'${tf.id}' in parents and mimeType = 'application/json' and trashed = false`,
             fields: 'files(id, name)',
             pageSize: 1000
-        }), 15000, "Listing JSON files (" + yearName + ")"));
+        }), 30000, "Listing JSON files (" + yearName + ")"));
 
         // v47: 最新のファイルから先に MetadataQueue に追加されるようソート
         jRes.result.files.sort((a, b) => b.name.localeCompare(a.name));
@@ -2345,8 +2345,8 @@ async function playWithAmplitude(index, startTime = 0, shouldPlay = true) {
     playbackAbortController = new AbortController();
     const signal = playbackAbortController.signal;
 
-    // 前の曲の監視タイマーとイベントを即座に破棄
-    if (window.autoNextTimer) {
+    // 前の曲のイベントを即座に破棄
+    if (window.autoNextTimer) { // v119: 過去のバージョンからの移行のために変数クリアだけ残す
         clearInterval(window.autoNextTimer);
         window.autoNextTimer = null;
     }
@@ -2555,8 +2555,8 @@ function startPlayback(index, url, cover, gen, startTime = 0, shouldPlay = true)
             console.log(`[Gen ${gen}] Playback seems stalled. Nudging play...`);
             try {
                 // v93: 再生対象が正しいか念のため確認
-                const activeIndex = Amplitude.getActiveIndex();
-                if (activeIndex === index) {
+                // activeIndex は Amplitudeの内部分番なのでJukeboxのindexと比較してはいけない
+                if (currentTrackIndex === index) {
                     const playPromise = audio.play();
                     if (playPromise !== undefined) {
                         playPromise.catch(e => {
@@ -2584,7 +2584,8 @@ function startPlayback(index, url, cover, gen, startTime = 0, shouldPlay = true)
             if (playGeneration === gen && !isNextTrackPending) {
                 console.log(`[Gen ${gen}] Native Audio Ended. Triggering next track...`);
                 isLoadingTrack = false;
-                playNextTrack();
+                // v98: Amplitude の内部イベントハンドラと競合しないよう、非同期で次曲へ遷移
+                setTimeout(() => playNextTrack(), 50);
             } else if (playGeneration === gen && isNextTrackPending) {
                 console.warn(`[Gen ${gen}] Native Audio Ended but skipped (isNextTrackPending=true, already handled).`);
             } else {
@@ -2675,39 +2676,6 @@ function startPlayback(index, url, cover, gen, startTime = 0, shouldPlay = true)
 
     console.log(`[Gen ${gen}] Starting prefetch...`);
     prefetchNextTrack(index);
-
-    // --- 最終手段：監視タイマー ---
-    // v91: timerIdをローカルに保持し、clearInterval(window.autoNextTimer)バグを修正。
-    // 旧実装では「自分自身」でなく「現在のグローバル参照」を消していたため、
-    // 複数タイマーが存在する場合に誤ったタイマーを破棄していた。
-    if (window.autoNextTimer) {
-        clearInterval(window.autoNextTimer);
-        window.autoNextTimer = null;
-    }
-    let autoNextTimerId;
-    autoNextTimerId = window.autoNextTimer = setInterval(() => {
-        // 【重要】世代が古くなっていたら「このタイマー自身」を確実に破棄
-        if (playGeneration !== gen) {
-            clearInterval(autoNextTimerId);
-            if (window.autoNextTimer === autoNextTimerId) window.autoNextTimer = null;
-            return;
-        }
-
-        const audio = Amplitude.getAudio ? Amplitude.getAudio() : document.querySelector('audio');
-        if (audio && !audio.paused && audio.duration > 0) {
-            const timeLeft = audio.duration - audio.currentTime;
-            // v89: isNextTrackPendingも確認して onended との二重発火を防ぐ
-            if (timeLeft < 0.5 && timeLeft > 0 && !isNextTrackPending) {
-                console.log(`[Gen ${gen}] Timer detected end. Forcing next...`);
-                clearInterval(autoNextTimerId);
-                if (window.autoNextTimer === autoNextTimerId) window.autoNextTimer = null;
-                isLoadingTrack = false;
-                playNextTrack();
-            } else if (timeLeft < 0.5 && timeLeft > 0 && isNextTrackPending) {
-                console.log(`[Gen ${gen}] Timer detected end but skipped (isNextTrackPending=true, already handled).`);
-            }
-        }
-    }, 300);
 }
 
 window.initApp = initApp;
