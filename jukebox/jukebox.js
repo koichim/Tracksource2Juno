@@ -2217,11 +2217,18 @@ async function prefetchNextTrack(currentIndex) {
                     });
                     if (tags && tags.picture) {
                         const { data, format } = tags.picture;
-                        coverUrl = URL.createObjectURL(new Blob([new Uint8Array(data)], { type: format }));
+                        // v102: image/jpg → image/jpeg に正規化（ブラウザ互換性）
+                        const mimeType = (format === 'image/jpg') ? 'image/jpeg' : (format || 'image/jpeg');
+                        coverUrl = URL.createObjectURL(new Blob([new Uint8Array(data)], { type: mimeType }));
+                        console.log(`[CoverArt] Prefetch OK: format=${format}, size=${data.length}`);
+                    } else {
+                        console.log(`[CoverArt] Prefetch: tags read OK but no picture tag. tags keys: ${tags ? Object.keys(tags).join(',') : 'null'}`);
                     }
+                } else {
+                    console.warn('[CoverArt] jsmediatags not loaded.');
                 }
             } catch (e) {
-                console.log("Prefetch: Cover art extraction skipped.");
+                console.warn(`[CoverArt] Prefetch extraction failed: ${e.type || e.message || JSON.stringify(e)}`);
             }
 
             if (signal.aborted) {
@@ -2289,6 +2296,20 @@ function playNextTrack() {
     // すでに先読み済みのインデックスがあればそれを優先する（シャッフル時も含む）
     if (nextTrackIndex !== -1) {
         console.log(`Using prefetched index: ${nextTrackIndex}`);
+        // v100: 先読み済み blob URL を即座に audio.src へセットし再生を開始する。
+        //       startPlayback の UI 更新処理と並行して再生パイプラインを起動することで
+        //       曲間の無音時間（体感で数秒）を最小化する。
+        if (nextBlobUrl && nextBlobUrl.startsWith('blob:')) {
+            const earlyAudio = (Amplitude.getAudio && Amplitude.getAudio()) || document.getElementById('jukebox-audio');
+            if (earlyAudio) {
+                earlyAudio.src = nextBlobUrl;
+                earlyAudio.play().catch(e => {
+                    if (e.name !== 'NotAllowedError') {
+                        console.warn('[playNextTrack] Early audio.play() failed:', e);
+                    }
+                });
+            }
+        }
         playWithAmplitude(nextTrackIndex);
         return;
     }
@@ -2484,10 +2505,19 @@ async function playWithAmplitude(index, startTime = 0, shouldPlay = true) {
                     });
                     if (tags && tags.picture) {
                         const { data, format } = tags.picture;
-                        coverUrl = URL.createObjectURL(new Blob([new Uint8Array(data)], { type: format }));
+                        // v102: image/jpg → image/jpeg に正規化（ブラウザ互換性）
+                        const mimeType = (format === 'image/jpg') ? 'image/jpeg' : (format || 'image/jpeg');
+                        coverUrl = URL.createObjectURL(new Blob([new Uint8Array(data)], { type: mimeType }));
+                        console.log(`[CoverArt] Playback OK: format=${format}, size=${data.length}`);
+                    } else {
+                        console.log(`[CoverArt] Playback: tags read OK but no picture tag. tags keys: ${tags ? Object.keys(tags).join(',') : 'null'}`);
                     }
+                } else {
+                    console.warn('[CoverArt] jsmediatags not loaded.');
                 }
-            } catch (e) { console.log("Cover art extraction skipped."); }
+            } catch (e) {
+                console.warn(`[CoverArt] Playback extraction failed: ${e.type || e.message || JSON.stringify(e)}`);
+            }
 
             // 【重要】再生ボタン押下などで新しい世代が割り込んでいないか最終チェック
             if (playGeneration !== thisGen || signal.aborted) {
@@ -2528,20 +2558,56 @@ function startPlayback(index, url, cover, gen, startTime = 0, shouldPlay = true)
     currentTrackIndex = index;
     const fullTitle = track.version ? `${track.title} (${track.version})` : track.title;
 
-    // 1. Amplitudeでの再生
-    const songData = {
-        name: fullTitle,
-        artist: track.artist || "Unknown",
-        url: url,
-        cover_art_url: cover
-    };
-    if (shouldPlay) {
-        Amplitude.playNow(songData);
+    // 1. 再生開始
+    // v100: blob URL の場合は Amplitude.playNow() を介さず直接 audio 要素を操作する。
+    //       Amplitude.playNow() の内部処理（イベントハンドラ再登録・ステートリカバリ等）は重く、
+    //       前曲の ended/pause イベントが輻輳する Android では数秒の遅延が生じていた。
+    //       playNextTrack() にて audio.src と play() を先行実行済みの場合が多いが、
+    //       ここで再確認して確実に再生状態を保証する。
+    const audio = (Amplitude.getAudio && Amplitude.getAudio()) || document.getElementById('jukebox-audio');
+    if (audio && url.startsWith('blob:')) {
+        // blob URL: 直接 audio 要素を制御して即時再生
+        if (audio.src !== url) {
+            audio.src = url;
+        }
+
+        // v101: Amplitude.playNow() をバイパスするため、アルバムアート・曲名・アーティスト名を手動更新
+        const albumArtImg = document.querySelector('[data-amplitude-song-info="cover_art_url"]');
+        if (albumArtImg) albumArtImg.src = cover;
+        const titleEl = document.querySelector('[data-amplitude-song-info="name"]') ||
+                        document.getElementById('now-playing-title');
+        if (titleEl) titleEl.textContent = fullTitle;
+        const artistEl = document.querySelector('[data-amplitude-song-info="artist"]') ||
+                         document.getElementById('now-playing-artist');
+        if (artistEl) artistEl.textContent = track.artist || 'Unknown';
+
+        if (shouldPlay) {
+            // 既に再生中でも audio.play() は安全に呼べる（no-op になる）
+            audio.play().catch(e => {
+                if (e.name === 'NotAllowedError') {
+                    console.warn(`[Gen ${gen}] Autoplay blocked by browser.`);
+                } else {
+                    console.warn(`[Gen ${gen}] Direct play failed:`, e);
+                }
+            });
+        } else {
+            // v96: 一時停止で復元する場合
+            if (!audio.paused) setTimeout(() => audio.pause(), 50);
+        }
     } else {
-        // v96: 一時停止で復元する場合、まずセットしてから描画等は手動、または playNow 後に即 pause
-        // Amplitude 5.x では playNow が最も確実なので、一旦 playNow して即座に停止する
-        Amplitude.playNow(songData);
-        setTimeout(() => Amplitude.pause(), 50); // 微小な遅延を置いて確実に止める
+        // フォールバック: blob URL でない場合は Amplitude.playNow() を使用
+        const songData = {
+            name: fullTitle,
+            artist: track.artist || "Unknown",
+            url: url,
+            cover_art_url: cover
+        };
+        if (shouldPlay) {
+            Amplitude.playNow(songData);
+        } else {
+            Amplitude.playNow(songData);
+            setTimeout(() => Amplitude.pause(), 50);
+        }
     }
 
     // 2. スマホ等での再生失敗対策：少し後に再生状態を確認し、止まっていれば再度Playを叩く
@@ -2575,7 +2641,7 @@ function startPlayback(index, url, cover, gen, startTime = 0, shouldPlay = true)
     }, 500);
 
     // 3. ブラウザのAudioタグにイベントをセット
-    const audio = Amplitude.getAudio ? Amplitude.getAudio() : document.querySelector('audio');
+    // （audio 変数はセクション 1 で取得済み）
     if (audio) {
         Logger.monitorAudio(audio);
         audio.onended = () => {
