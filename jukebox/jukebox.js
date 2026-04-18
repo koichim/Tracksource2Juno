@@ -666,6 +666,14 @@ const getRealAudio = () => {
     return audio;
 };
 
+// v131: UI要素のキャッシュ (パフォーマンス向上用)
+let cachedUI = {
+    progress: null,
+    slider: null,
+    current: null,
+    duration: null
+};
+
 /**
  * v95: 再生状態を localStorage に保存する（レジューム用）
  */
@@ -742,7 +750,7 @@ const syncUI = () => {
             }
         }
 
-        // 3. プレイリストのハイライト同期 (v16: インデックスではなく ID 指定で確実に。重い処理なので index 変更時のみでも良いが、確実性重視)
+        // 5. プレイリストのハイライト同期 (v16: インデックスではなく ID 指定で確実に。重い処理なので index 変更時のみでも良いが、確実性重視)
         const selector = '#track_list li.playing';
         const highlighted = document.querySelectorAll(selector);
         highlighted.forEach(el => {
@@ -756,12 +764,58 @@ const syncUI = () => {
             }
         }
 
-        // 4. ロック画面同期
+        // 6. UI進捗のマニュアル同期 (v131: 負荷軽減のためキャッシュを利用)
+        if (audio && !audio.paused) {
+            if (!cachedUI.progress) cachedUI.progress = document.querySelectorAll('.amplitude-song-played-progress');
+            if (!cachedUI.slider) cachedUI.slider = document.querySelectorAll('.amplitude-song-slider');
+            if (!cachedUI.current) cachedUI.current = document.querySelectorAll('.amplitude-current-time');
+            if (!cachedUI.duration) cachedUI.duration = document.querySelectorAll('.amplitude-duration-time');
+
+            const progress = (audio.currentTime / audio.duration) * 100;
+            const progressVal = isNaN(progress) ? 0 : progress;
+            cachedUI.progress.forEach(el => { if (el.value !== progressVal) el.value = progressVal; });
+            cachedUI.slider.forEach(el => { if (el.value !== progressVal) el.value = progressVal; });
+
+            const formatTime = (s) => {
+                if (isNaN(s)) return "00:00";
+                const m = Math.floor(s / 60);
+                const rs = Math.floor(s % 60);
+                return `${String(m).padStart(2, '0')}:${String(rs).padStart(2, '0')}`;
+            };
+            const currentT = formatTime(audio.currentTime);
+            cachedUI.current.forEach(el => { if (el.innerText !== currentT) el.innerText = currentT; });
+            
+            const durationT = formatTime(audio.duration);
+            cachedUI.duration.forEach(el => { if (el.innerText !== durationT) el.innerText = durationT; });
+        }
+
+        // 7. ロック画面同期 (Media Session API)
         if ('mediaSession' in navigator) {
             const currentMedState = navigator.mediaSession.playbackState;
-            const targetState = (stalled) ? currentMedState : (actualPaused ? 'paused' : 'playing');
-            if (currentMedState !== targetState && (targetState === 'playing' || targetState === 'paused' || targetState === 'none')) {
+            // v131: ロード中（isLoadingTrack）でも 'playing' を維持してOSのタスクキルを防ぐ
+            let targetState = (actualPaused) ? 'paused' : 'playing';
+            
+            if (isLoadingTrack && !actualPaused) {
+                targetState = 'playing';
+            }
+
+            if (currentMedState !== targetState) {
                 navigator.mediaSession.playbackState = targetState;
+            }
+
+            // v131: 再生位置の精密同期 (setPositionState)
+            if (audio && audio.duration && !isNaN(audio.duration)) {
+                try {
+                    // 負荷軽減のため、毎秒更新程度にする（syncUIは200ms周期）
+                    if (Date.now() - (window._lastMediaSessionUpdate || 0) > 1000) {
+                        navigator.mediaSession.setPositionState({
+                            duration: audio.duration,
+                            playbackRate: audio.playbackRate || 1,
+                            position: audio.currentTime
+                        });
+                        window._lastMediaSessionUpdate = Date.now();
+                    }
+                } catch (e) {}
             }
         }
         const version = getAppVersion();
