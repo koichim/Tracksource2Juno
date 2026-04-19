@@ -60,6 +60,8 @@
 <body>
     <!-- 明示的なオーディオ要素を追加（一部のブラウザでの優先度維持のため、display:noneを避け画面外に配置） -->
     <audio id="jukebox-audio" style="position: absolute; left: -9999px; visibility: hidden;" preload="auto" playsinline></audio>
+    <!-- v140: 無音アンカー（曲間のタスクキル防止用） -->
+    <audio id="silent-anchor" style="display:none;" loop playsinline></audio>
 
     <div class="setup-area">
         <button id="auth_btn" disabled>Loading...</button>

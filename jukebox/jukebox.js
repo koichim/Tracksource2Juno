@@ -31,6 +31,32 @@ let currentNewMp3s = new Set();    // v42: 🆙プレイリスト内で新しく
 let lastSaveTime = 0;              // v95: レジューム用の保存タイミング管理
 let resumeState = null;            // v95: 起動時のレジューム状態
 
+// v140: 無音アンカー用のデータ (100msの無音WAV)
+const SILENT_SOUND_URL = "data:audio/wav;base64,UklGRjIAAABXQVZFZm10IBAAAAABAAEAIlYAAClSAAAEABAAZGF0YRAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+/**
+ * v140: OSのタスクキルを防ぐための無音再生を開始
+ */
+function startSilentAnchor() {
+    const anchor = document.getElementById('silent-anchor');
+    if (anchor) {
+        if (!anchor.src || anchor.src === "") anchor.src = SILENT_SOUND_URL;
+        anchor.play().catch(e => {
+            if (e.name !== 'NotAllowedError') console.warn("[SilentAnchor] Play failed:", e);
+        });
+    }
+}
+
+/**
+ * v140: 無音再生を停止
+ */
+function stopSilentAnchor() {
+    const anchor = document.getElementById('silent-anchor');
+    if (anchor) {
+        anchor.pause();
+    }
+}
+
 /**
  * Promiseにタイムアウト制限を設けるヘルパー
  */
@@ -2536,6 +2562,7 @@ async function playWithAmplitude(index, startTime = 0, shouldPlay = true) {
     if (isLoadingTrack && index === currentTrackIndex) return;
 
     isLoadingTrack = true;
+    startSilentAnchor(); // v140: ロード開始時にも無音アンカーを念押しで開始
 
     try {
         // --- 1. 指定されたインデックスまたはそれ以降の「有効な曲」を探す ---
@@ -2750,7 +2777,9 @@ function startPlayback(index, url, cover, gen, startTime = 0, shouldPlay = true)
 
         if (shouldPlay) {
             // 既に再生中でも audio.play() は安全に呼べる（no-op になる）
-            audio.play().catch(e => {
+            audio.play().then(() => {
+                stopSilentAnchor(); // v140: 本番の再生が始まったら無音アンカーを停止
+            }).catch(e => {
                 if (e.name === 'NotAllowedError') {
                     console.warn(`[Gen ${gen}] Autoplay blocked by browser.`);
                 } else {
@@ -2760,6 +2789,7 @@ function startPlayback(index, url, cover, gen, startTime = 0, shouldPlay = true)
         } else {
             // v96: 一時停止で復元する場合
             if (!audio.paused) setTimeout(() => audio.pause(), 50);
+            stopSilentAnchor();
         }
     } else {
         // フォールバック: blob URL でない場合は Amplitude.playNow() を使用
@@ -2817,6 +2847,7 @@ function startPlayback(index, url, cover, gen, startTime = 0, shouldPlay = true)
             if (playGeneration === gen && !isNextTrackPending) {
                 console.log(`[Gen ${gen}] Native Audio Ended. Triggering next track...`);
                 isLoadingTrack = false;
+                startSilentAnchor(); // v140: 曲が終わった瞬間に無音アンカーを開始
                 // v98: Amplitude の内部イベントハンドラと競合しないよう、非同期で次曲へ遷移
                 setTimeout(() => playNextTrack(), 50);
             } else if (playGeneration === gen && isNextTrackPending) {
