@@ -83,3 +83,49 @@ self.addEventListener('fetch', event => {
       })
   );
 });
+
+// v138: Service Worker への処理委譲 (DOWNLOAD_TRACK)
+self.addEventListener('message', event => {
+  if (event.data && event.data.type === 'DOWNLOAD_TRACK') {
+    const { url, fetchId, token } = event.data;
+    
+    // event.waitUntil を使うことで、非同期処理が終わるまで SW が終了するのを防ぐ
+    event.waitUntil(async function() {
+      try {
+        console.log(`[SW] Starting delegated download: ${fetchId}`);
+        // v139: CORS 回避のため、トークンをヘッダーに乗せる
+        const response = await fetch(url, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (response.ok) {
+          const cache = await caches.open('jukebox-downloads');
+          await cache.put(url, response);
+          
+          // 完了をメインスレッドに通知
+          const clients = await self.clients.matchAll();
+          clients.forEach(client => {
+            client.postMessage({
+              type: 'DOWNLOAD_SUCCESS',
+              fetchId: fetchId,
+              url: url
+            });
+          });
+          console.log(`[SW] Download success: ${fetchId}`);
+        } else {
+          throw new Error(`HTTP ${response.status}`);
+        }
+      } catch (err) {
+        console.error(`[SW] Download failed: ${fetchId}`, err);
+        const clients = await self.clients.matchAll();
+        clients.forEach(client => {
+          client.postMessage({
+            type: 'DOWNLOAD_ERROR',
+            fetchId: fetchId,
+            status: err.message
+          });
+        });
+      }
+    }());
+  }
+});

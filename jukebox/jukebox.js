@@ -2248,7 +2248,19 @@ async function prefetchNextTrack(currentIndex) {
             MetadataQueue.pause(); // 巨大ファイルのDL中はメタデータ取得を一時停止
             const blob = await authorizedRequest(async () => {
                 const tokenData = JSON.parse(localStorage.getItem('gdrive_token'));
-                const res = await fetch(`https://www.googleapis.com/drive/v3/files/${targetId}?alt=media`, {
+                const url = `https://www.googleapis.com/drive/v3/files/${targetId}?alt=media`;
+
+                // v138: Service Worker への委譲を優先
+                if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+                    try {
+                        return await downloadViaServiceWorker(targetId, track.title, tokenData.access_token, signal);
+                    } catch (e) {
+                        if (e.name === 'AbortError') throw e;
+                        console.warn("[SW-Delegation] Prefetch falling back to normal fetch:", e.message);
+                    }
+                }
+
+                const res = await fetch(url, {
                     headers: { 'Authorization': 'Bearer ' + tokenData.access_token },
                     signal: signal // v92: 中断信号を渡す
                 });
@@ -2417,6 +2429,80 @@ function clearPrefetch() {
     }
 }
 
+/**
+ * v138: Service Worker にダウンロードを委譲する
+ */
+async function downloadViaServiceWorker(targetId, title, token, signal) {
+    const reg = await navigator.serviceWorker.ready;
+    if (!reg.active) throw new Error("Service Worker not active");
+
+    const fetchId = `delegated-${targetId}-${Date.now()}`;
+    const url = `https://www.googleapis.com/drive/v3/files/${targetId}?alt=media`;
+
+    console.log(`[SW-Delegation] Requesting: ${title} (ID: ${fetchId})`);
+    
+    // SWにダウンロードを依頼
+    reg.active.postMessage({
+        type: 'DOWNLOAD_TRACK',
+        url: url,
+        token: token, // v139: トークンをヘッダーに含めるため別出し
+        fetchId: fetchId
+    });
+
+    return new Promise((resolve, reject) => {
+        const timeoutId = setTimeout(() => {
+            cleanup();
+            reject(new Error("SW Download Timeout (60s)"));
+        }, 60000);
+
+        const checkCache = async () => {
+            try {
+                const cache = await caches.open('jukebox-downloads');
+                const response = await cache.match(url);
+                if (response) {
+                    cleanup();
+                    const blob = await response.blob();
+                    await cache.delete(url);
+                    resolve(blob);
+                    return true;
+                }
+            } catch (e) {
+                console.warn("[SW-Delegation] cache check failed:", e);
+            }
+            return false;
+        };
+
+        const messageHandler = (event) => {
+            if (!event.data || !event.data.type) return;
+            
+            if (event.data.type === 'DOWNLOAD_SUCCESS' && event.data.fetchId === fetchId) {
+                checkCache();
+            } else if (event.data.type === 'DOWNLOAD_ERROR' && event.data.fetchId === fetchId) {
+                cleanup();
+                reject(new Error(`SW Download Failed: ${event.data.status || 'unknown'}`));
+            }
+        };
+
+        const intervalId = setInterval(checkCache, 2000);
+        navigator.serviceWorker.addEventListener('message', messageHandler);
+
+        function cleanup() {
+            clearTimeout(timeoutId);
+            clearInterval(intervalId);
+            navigator.serviceWorker.removeEventListener('message', messageHandler);
+        }
+
+        if (signal) {
+            signal.addEventListener('abort', () => {
+                cleanup();
+                reject(new Error("AbortError"));
+            });
+        }
+        
+        checkCache();
+    });
+}
+
 // 4. 再生 & スキップロジック
 async function playWithAmplitude(index, startTime = 0, shouldPlay = true) {
     // 世代を進める（古いタイマーやイベントからの呼び出しを無効化する）
@@ -2523,7 +2609,19 @@ async function playWithAmplitude(index, startTime = 0, shouldPlay = true) {
             const fetchFile = async () => {
                 return await authorizedRequest(async () => {
                     const tokenData = JSON.parse(localStorage.getItem('gdrive_token'));
-                    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${targetId}?alt=media`, {
+                    const url = `https://www.googleapis.com/drive/v3/files/${targetId}?alt=media`;
+
+                    // v138: Service Worker への委譲を優先
+                    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+                        try {
+                            return await downloadViaServiceWorker(targetId, track.title, tokenData.access_token, signal);
+                        } catch (e) {
+                            if (e.name === 'AbortError') throw e;
+                            console.warn("[SW-Delegation] Normal fetch fallback due to:", e.message);
+                        }
+                    }
+
+                    const res = await fetch(url, {
                         headers: { 'Authorization': 'Bearer ' + tokenData.access_token },
                         signal: signal // v92: 中断信号を渡す
                     });
