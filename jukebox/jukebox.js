@@ -765,16 +765,20 @@ const syncUI = () => {
         }
 
         // 6. UI進捗のマニュアル同期 (v131: 負荷軽減のためキャッシュを利用)
-        if (audio && !audio.paused) {
-            if (!cachedUI.progress) cachedUI.progress = document.querySelectorAll('.amplitude-song-played-progress');
-            if (!cachedUI.slider) cachedUI.slider = document.querySelectorAll('.amplitude-song-slider');
+        if (audio) {
+            if (!cachedUI.progress) cachedUI.progress = document.querySelectorAll('.jukebox-song-played-progress');
+            if (!cachedUI.slider) cachedUI.slider = document.querySelectorAll('.jukebox-song-slider');
             if (!cachedUI.current) cachedUI.current = document.querySelectorAll('.amplitude-current-time');
             if (!cachedUI.duration) cachedUI.duration = document.querySelectorAll('.amplitude-duration-time');
 
             const progress = (audio.currentTime / audio.duration) * 100;
-            const progressVal = isNaN(progress) ? 0 : progress;
+            const progressVal = isFinite(progress) ? progress : 0;
+            const isUserSeeking = Array.from(cachedUI.slider).some(el => el === document.activeElement);
+            
             cachedUI.progress.forEach(el => { if (el.value !== progressVal) el.value = progressVal; });
-            cachedUI.slider.forEach(el => { if (el.value !== progressVal) el.value = progressVal; });
+            cachedUI.slider.forEach(el => { 
+                if (!isUserSeeking && el.value !== progressVal) el.value = progressVal; 
+            });
 
             const formatTime = (s) => {
                 if (isNaN(s)) return "00:00";
@@ -1088,6 +1092,17 @@ if (playPauseBtn) {
         }
     };
 }
+
+// v132: カスタムシークバーの制御 (AmplitudeJSの自動制御を無効化したため手動で実装)
+document.addEventListener('input', (e) => {
+    if (e.target && e.target.classList.contains('jukebox-song-slider')) {
+        const audio = getRealAudio();
+        if (audio && audio.duration && !isNaN(audio.duration)) {
+            const seekTime = (e.target.value / 100) * audio.duration;
+            audio.currentTime = seekTime;
+        }
+    }
+});
 
 // jukebox.js 側の togglePlaylistView は index.html 側と重複するため、
 // 共通のグローバル関数として定義を一貫させます。
