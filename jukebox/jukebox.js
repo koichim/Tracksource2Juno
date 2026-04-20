@@ -8,10 +8,12 @@ let tokenResolve, tokenReject; // v67: Token refresh Promise state
 let tokenIsMandatory = false;  // v73: 期限切れでの更新なら真、予備の更新なら偽
 let discoveryStarted = false; // v62: サイレントリフレッシュ時の二重走査防止用
 let currentPlaylist = [], currentTrackIndex = -1, currentYearName = "";
+let isDiscoveryInProgress = false;   // v145: 初期化中の通信衝突防止用
 let currentBlobUrl = null, isLoadingTrack = false;
 let nextTrackIndex = -1;
 let nextBlobUrl = null;
 let nextCoverUrl = null;
+let currentCoverUrl = null; // v141: 現在再生中のカバーアート解放用
 let isPrefetching = false;
 let playbackAbortController = null; // v92: 再生中ダウンロードの中断用
 let prefetchAbortController = null; // v92: 先読み中ダウンロードの中断用
@@ -41,6 +43,7 @@ function startSilentAnchor() {
     const anchor = document.getElementById('silent-anchor');
     if (anchor) {
         if (!anchor.src || anchor.src === "") anchor.src = SILENT_SOUND_URL;
+        anchor.volume = 0.001; // v148: さらに絞って干渉を防ぐ
         anchor.play().catch(e => {
             if (e.name !== 'NotAllowedError') console.warn("[SilentAnchor] Play failed:", e);
         });
@@ -1191,7 +1194,7 @@ async function initApp() {
     }
 
     if (window.jsmediatags) {
-        updateStatus("Loading Program...");
+        // すでにロード済み
     } else {
         updateStatus("Error: jsmediatags not found");
         return;
@@ -1415,13 +1418,18 @@ async function initApp() {
 authBtn.onclick = () => tokenClient.requestCode();
 
 // 2. フォルダスキャン
-async function startDiscovery() {
+async function startDiscovery(retryCount = 0) {
+    if (retryCount === 0) {
+        isDiscoveryInProgress = true;
+        MetadataQueue.pause(); // v145: 初期化中はメタデータ取得を停止
+    }
     updateStatus("Listing up DJ charts...");
     try {
+        // v143: タイムアウトを30秒に延長し、リトライをサポート
         const res = await authorizedRequest(() => withTimeout(gapi.client.drive.files.list({
             q: "name = 'music_backup' and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
             fields: 'files(id)'
-        }), 20000, "Discovery Project Root"));
+        }), 30000, "Discovery Project Root"));
 
         if (res.result.files && res.result.files.length > 0) {
             await findYearFolders(res.result.files[0].id);
@@ -1429,78 +1437,100 @@ async function startDiscovery() {
             updateStatus("Error: music_backup folder not found");
         }
     } catch (e) {
-        console.error("[Discovery] Failed to find 'music_backup' root folder:", e);
+        if (retryCount < 2) {
+            console.warn(`[Discovery] Retrying (${retryCount + 1}/2) due to error:`, e.message || e);
+            await new Promise(r => setTimeout(r, 2000)); // 2秒待機
+            return await startDiscovery(retryCount + 1); // v147: awaitを追加
+        }
+        console.error("[Discovery] Failed to find 'music_backup' root folder after retries:", e);
         updateStatus("Discovery Error (Check Network/Auth)");
+    } finally {
+        if (retryCount === 0) {
+            isDiscoveryInProgress = false;
+            MetadataQueue.resume(); // v145: 完了（または失敗）したら再開
+        }
     }
 }
 
-async function findYearFolders(parentId) {
-    const res = await authorizedRequest(() => withTimeout(gapi.client.drive.files.list({
-        q: `'${parentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
-        fields: 'files(id, name)'
-    }), 20000, "Listing Year Folders"));
-    selector.innerHTML = '<option value="">Select DJ Chart...</option>';
-    const yearFolders = res.result.files
-        .filter(f => f.name.match(/^\d{4}$/) && parseInt(f.name) >= 2023)
-        .sort((a, b) => b.name.localeCompare(a.name));
+async function findYearFolders(parentId, retryCount = 0) {
+    try {
+        // v143: タイムアウト延長とリトライ
+        const res = await authorizedRequest(() => withTimeout(gapi.client.drive.files.list({
+            q: `'${parentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+            fields: 'files(id, name)'
+        }), 30000, "Listing Year Folders"));
+        
+        selector.innerHTML = '<option value="">Select DJ Chart...</option>';
+        const yearFolders = res.result.files
+            .filter(f => f.name.match(/^\d{4}$/) && parseInt(f.name) >= 2023)
+            .sort((a, b) => b.name.localeCompare(a.name));
+    
+        let allFavs = [];
+        let allRegs = [];
 
-    let allFavs = [];
-    let allRegs = [];
+        for (const f of yearFolders) {
+            const items = await findTracksFolder(f.id, f.name);
+            allFavs.push(...items.favs);
+            allRegs.push(...items.regs);
+        }
 
-    for (const f of yearFolders) {
-        const items = await findTracksFolder(f.id, f.name);
-        allFavs.push(...items.favs);
-        allRegs.push(...items.regs);
-    }
+        // 名前（ファイル名）で逆順ソート（新しい順）
+        allFavs.sort((a, b) => b.dataset.fileName.localeCompare(a.dataset.fileName));
+        allRegs.sort((a, b) => b.dataset.fileName.localeCompare(a.dataset.fileName));
 
-    // 名前（ファイル名）で逆順ソート（新しい順）
-    allFavs.sort((a, b) => b.dataset.fileName.localeCompare(a.dataset.fileName));
-    allRegs.sort((a, b) => b.dataset.fileName.localeCompare(a.dataset.fileName));
+        selector.append(...allFavs, ...allRegs);
+        updateStatus("DJ Charts Loaded.");
 
-    selector.append(...allFavs, ...allRegs);
-    updateStatus("DJ Charts Loaded.");
+        // v46: カスタムセレクターを更新 & 有効化
+        renderCustomPlaylistList();
+        setupCustomSelectorEvents();
+        if (playlistSearch) {
+            playlistSearch.disabled = false;
+            playlistSearch.placeholder = "Search DJ Chart...";
+        }
+        if (authBtn) authBtn.style.display = 'none';
+        if (customSelectContainer) customSelectContainer.style.display = 'block';
 
-    // v46: カスタムセレクターを更新 & 有効化
-    renderCustomPlaylistList();
-    setupCustomSelectorEvents();
-    if (playlistSearch) {
-        playlistSearch.disabled = false;
-        playlistSearch.placeholder = "Search DJ Chart...";
-    }
-    if (authBtn) authBtn.style.display = 'none';
-    if (customSelectContainer) customSelectContainer.style.display = 'block';
+        const playlistBarToggle = document.getElementById('playlist-bar-toggle');
+        if (playlistBarToggle) {
+            playlistBarToggle.classList.remove('disabled');
+        }
 
-    const playlistBarToggle = document.getElementById('playlist-bar-toggle');
-    if (playlistBarToggle) {
-        playlistBarToggle.classList.remove('disabled');
-    }
+        // v95: レジューム処理
+        if (resumeState && resumeState.playlistValue) {
+            // セレクターに存在するか確認
+            let found = false;
+            for (let i = 0; i < selector.options.length; i++) {
+                if (selector.options[i].value === resumeState.playlistValue) {
+                    selector.selectedIndex = i;
+                    found = true;
+                    break;
+                }
+            }
+            if (found) {
+                updateStatus("Resuming last session...");
+                // カスタムセレクターの表示も同期
+                const selectedOpt = selector.options[selector.selectedIndex];
+                if (playlistSearch) playlistSearch.value = selectedOpt.innerText;
+                renderCustomPlaylistList();
 
-    // v95: レジューム処理
-    if (resumeState && resumeState.playlistValue) {
-        // セレクターに存在するか確認
-        let found = false;
-        for (let i = 0; i < selector.options.length; i++) {
-            if (selector.options[i].value === resumeState.playlistValue) {
-                selector.selectedIndex = i;
-                found = true;
-                break;
+                // プレイリストの読み込みを開始
+                const event = new Event('change');
+                event.isResuming = true; // カスタムフラグ
+                selector.dispatchEvent(event);
+            } else {
+                console.log("[Resume] Saved playlist not found in current list.");
+                resumeState = null;
             }
         }
-        if (found) {
-            updateStatus("Resuming last session...");
-            // カスタムセレクターの表示も同期
-            const selectedOpt = selector.options[selector.selectedIndex];
-            if (playlistSearch) playlistSearch.value = selectedOpt.innerText;
-            renderCustomPlaylistList();
-
-            // プレイリストの読み込みを開始
-            const event = new Event('change');
-            event.isResuming = true; // カスタムフラグ
-            selector.dispatchEvent(event);
-        } else {
-            console.log("[Resume] Saved playlist not found in current list.");
-            resumeState = null;
+    } catch (e) {
+        if (retryCount < 2) {
+            console.warn(`[Discovery] Retrying Year Folders (${retryCount + 1}/2) due to error:`, e.message || e);
+            await new Promise(r => setTimeout(r, 2000));
+            return await findYearFolders(parentId, retryCount + 1); // v147: awaitを追加
         }
+        console.error("[Discovery] Failed to list Year Folders after retries:", e);
+        updateStatus("Discovery Error (Check Network/Auth)");
     }
 }
 
@@ -1653,11 +1683,13 @@ function updateCustomItemLabel(value, label) {
     });
 }
 
-async function findTracksFolder(yearId, yearName) {
-    const res = await authorizedRequest(() => withTimeout(gapi.client.drive.files.list({
-        q: `'${yearId}' in parents and name = 'tracks' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
-        fields: 'files(id)'
-    }), 20000, "Finding tracks folder (" + yearName + ")"));
+async function findTracksFolder(yearId, yearName, retryCount = 0) {
+    try {
+        // v145: タイムアウトを30秒に延長し、リトライをサポート
+        const res = await authorizedRequest(() => withTimeout(gapi.client.drive.files.list({
+            q: `'${yearId}' in parents and name = 'tracks' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+            fields: 'files(id)'
+        }), 30000, "Finding tracks folder (" + yearName + ")"));
 
     // 返り値用の配列
     const results = { favs: [], regs: [] };
@@ -1667,7 +1699,7 @@ async function findTracksFolder(yearId, yearName) {
             q: `'${tf.id}' in parents and mimeType = 'application/json' and trashed = false`,
             fields: 'files(id, name)',
             pageSize: 1000
-        }), 30000, "Listing JSON files (" + yearName + ")"));
+        }), 60000, "Listing JSON files (" + yearName + ")"));
 
         // v47: 最新のファイルから先に MetadataQueue に追加されるようソート
         jRes.result.files.sort((a, b) => b.name.localeCompare(a.name));
@@ -1863,6 +1895,14 @@ async function findTracksFolder(yearId, yearName) {
         }
     }
     return results;
+    } catch (e) {
+        if (retryCount < 2) {
+            console.warn(`[Discovery] Retrying tracks folder (${yearName}, ${retryCount + 1}/2) due to error:`, e.message || e);
+            await new Promise(r => setTimeout(r, 2000));
+            return findTracksFolder(yearId, yearName, retryCount + 1);
+        }
+        throw e;
+    }
 }
 
 // 3. リスト表示
@@ -2586,7 +2626,12 @@ async function playWithAmplitude(index, startTime = 0, shouldPlay = true) {
         if (index === nextTrackIndex && nextBlobUrl) {
             if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
             currentBlobUrl = nextBlobUrl;
-            const coverUrl = nextCoverUrl;
+            
+            // v141: 古いカバーアートを解放
+            if (currentCoverUrl && currentCoverUrl.startsWith('blob:')) {
+                URL.revokeObjectURL(currentCoverUrl);
+            }
+            currentCoverUrl = nextCoverUrl;
 
             // 先読み変数をリセット
             nextBlobUrl = null;
@@ -2594,7 +2639,7 @@ async function playWithAmplitude(index, startTime = 0, shouldPlay = true) {
             nextTrackIndex = -1;
 
             // 再生開始
-            startPlayback(index, currentBlobUrl, coverUrl, thisGen, startTime, shouldPlay);
+            startPlayback(index, currentBlobUrl, currentCoverUrl, thisGen, startTime, shouldPlay);
             return; // ここで終了
         }
 
@@ -2649,10 +2694,13 @@ async function playWithAmplitude(index, startTime = 0, shouldPlay = true) {
                     }
 
                     const res = await fetch(url, {
-                        headers: { 'Authorization': 'Bearer ' + tokenData.access_token },
+                        headers: { 
+                            'Authorization': 'Bearer ' + tokenData.access_token,
+                            'Range': 'bytes=0-1048575' // v150: 先頭 1MB
+                        },
                         signal: signal // v92: 中断信号を渡す
                     });
-                    if (!res.ok) {
+                    if (!res.ok && res.status !== 206) {
                         if (res.status === 401) throw { status: 401 };
                         throw new Error(`Fetch failed with status: ${res.status}`);
                     }
@@ -2682,13 +2730,23 @@ async function playWithAmplitude(index, startTime = 0, shouldPlay = true) {
 
             const endMs = performance.now();
             const memAfter = performance.memory ? (performance.memory.usedJSHeapSize / 1024 / 1024).toFixed(1) : 'N/A';
-            console.log(`[Performance] Fetch Playback taking ${Math.round(endMs - startMs)}ms. Heap: ${memBefore}MB -> ${memAfter}MB`);
+            console.log(`[Performance] Fetch Metadata (Partial) taking ${Math.round(endMs - startMs)}ms. Heap: ${memBefore}MB -> ${memAfter}MB`);
 
-            if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
-            currentBlobUrl = URL.createObjectURL(blob);
+            // v150: 再生自体は Service Worker 経由のストリーミングで行うため、
+            // ここでは Blob URL を作らず、仮想URLを生成する
+            const token = gapi.client.getToken().access_token;
+            const streamUrl = `./proxy-stream?fileId=${targetId}&token=${encodeURIComponent(token)}`;
+            
+            currentBlobUrl = streamUrl; // 変数名は維持するが中身はストリームURL
+            
+            // v141: 古いカバーアートを解放
+            if (currentCoverUrl && currentCoverUrl.startsWith('blob:')) {
+                URL.revokeObjectURL(currentCoverUrl);
+            }
+            currentCoverUrl = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'; // デフォルト
 
             // カバーアート抽出
-            let coverUrl = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+            let coverUrl = currentCoverUrl;
             try {
                 if (window.jsmediatags) {
                     const tags = await new Promise((res, rej) => {
@@ -2701,8 +2759,10 @@ async function playWithAmplitude(index, startTime = 0, shouldPlay = true) {
                         const { data, format } = tags.picture;
                         // v102: image/jpg → image/jpeg に正規化（ブラウザ互換性）
                         const mimeType = (format === 'image/jpg') ? 'image/jpeg' : (format || 'image/jpeg');
-                        coverUrl = URL.createObjectURL(new Blob([new Uint8Array(data)], { type: mimeType }));
+                        currentCoverUrl = URL.createObjectURL(new Blob([new Uint8Array(data)], { type: mimeType }));
                         console.log(`[CoverArt] Playback OK: format=${format}, size=${data.length}`);
+                        // v149: 生データは不要になったので null 化（GCを助ける）
+                        tags.picture.data = null;
                     } else {
                         console.log(`[CoverArt] Playback: tags read OK but no picture tag. tags keys: ${tags ? Object.keys(tags).join(',') : 'null'}`);
                     }
@@ -2721,7 +2781,8 @@ async function playWithAmplitude(index, startTime = 0, shouldPlay = true) {
             }
 
             // 再生開始
-            startPlayback(index, currentBlobUrl, coverUrl, thisGen, startTime, shouldPlay);
+            startPlayback(index, currentBlobUrl, currentCoverUrl, thisGen, startTime, shouldPlay);
+            blob = null; // v149: メモリ解放
         } else {
             // ファイルが見つからなかった場合は次の曲へ
             updateStatus(`Not Found: ${fileName}`);
@@ -2759,26 +2820,54 @@ function startPlayback(index, url, cover, gen, startTime = 0, shouldPlay = true)
     //       playNextTrack() にて audio.src と play() を先行実行済みの場合が多いが、
     //       ここで再確認して確実に再生状態を保証する。
     const audio = (Amplitude.getAudio && Amplitude.getAudio()) || document.getElementById('jukebox-audio');
-    if (audio && url.startsWith('blob:')) {
-        // blob URL: 直接 audio 要素を制御して即時再生
+    if (audio && (url.startsWith('blob:') || url.includes('/proxy-stream'))) {
+        // v150: blob URL または ストリームURL を直接 audio 要素にセット
         if (audio.src !== url) {
             audio.src = url;
+            // v149: blob の場合は即座に Revoke (メモリ節約)
+            if (url.startsWith('blob:')) {
+                URL.revokeObjectURL(url);
+                if (url === currentBlobUrl) currentBlobUrl = null;
+            }
         }
 
-        // v101: Amplitude.playNow() をバイパスするため、アルバムアート・曲名・アーティスト名を手動更新
+        // v101/158: Amplitude.playNow() をバイパスするため、アルバムアート・曲名・アーティスト名を手動更新
         const albumArtImg = document.querySelector('[data-amplitude-song-info="cover_art_url"]');
-        if (albumArtImg) albumArtImg.src = cover;
+        if (albumArtImg) {
+            albumArtImg.src = cover || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+        }
+        
         const titleEl = document.querySelector('[data-amplitude-song-info="name"]') ||
                         document.getElementById('now-playing-title');
-        if (titleEl) titleEl.textContent = fullTitle;
+        if (titleEl) {
+            titleEl.textContent = fullTitle;
+            if (titleEl.id === 'now-playing-title') delete titleEl.dataset.originalText;
+        }
+        
         const artistEl = document.querySelector('[data-amplitude-song-info="artist"]') ||
                          document.getElementById('now-playing-artist');
-        if (artistEl) artistEl.textContent = track.artist || 'Unknown';
+        if (artistEl) {
+            artistEl.textContent = track.artist || 'Unknown';
+            if (artistEl.id === 'now-playing-artist') delete artistEl.dataset.originalText;
+        }
+
+        // v158: Media Session (OS通知欄) も強制更新
+        if ('mediaSession' in navigator) {
+            navigator.mediaSession.metadata = new MediaMetadata({
+                title: fullTitle,
+                artist: track.artist || "Unknown",
+                album: "Cloud Jukebox",
+                artwork: [{ src: cover, sizes: '512x512', type: 'image/png' }]
+            });
+        }
 
         if (shouldPlay) {
             // 既に再生中でも audio.play() は安全に呼べる（no-op になる）
             audio.play().then(() => {
-                stopSilentAnchor(); // v140: 本番の再生が始まったら無音アンカーを停止
+                // v144: 本番が始まっても無音アンカーはあえて停止せず、
+                // OSの音声パイプラインを「常時アクティブ」に保つ（負荷は極低）
+                // v148: 10秒の無音ファイルを使用してループ頻度を下げ、OSの監視を回避
+                startSilentAnchor(); 
             }).catch(e => {
                 if (e.name === 'NotAllowedError') {
                     console.warn(`[Gen ${gen}] Autoplay blocked by browser.`);
@@ -2789,6 +2878,7 @@ function startPlayback(index, url, cover, gen, startTime = 0, shouldPlay = true)
         } else {
             // v96: 一時停止で復元する場合
             if (!audio.paused) setTimeout(() => audio.pause(), 50);
+            // 手動停止・一時停止の時はアンカーも止めて電池を保護する
             stopSilentAnchor();
         }
     } else {
@@ -2857,6 +2947,9 @@ function startPlayback(index, url, cover, gen, startTime = 0, shouldPlay = true)
             }
         };
 
+        audio.removeEventListener('timeupdate', updatePositionState);
+        audio.addEventListener('timeupdate', updatePositionState);
+
         // v95: startTime が指定されている場合はシーク
         if (startTime > 0) {
             const onCanPlay = () => {
@@ -2912,6 +3005,24 @@ function startPlayback(index, url, cover, gen, startTime = 0, shouldPlay = true)
             console.log("[MediaSession] User clicked 'Next' from OS controls");
             playNextTrack();
         });
+
+        // v148: stop ハンドラを追加
+        navigator.mediaSession.setActionHandler('stop', () => {
+            console.log("[MediaSession] Stop signal received");
+            Amplitude.pause();
+            navigator.mediaSession.playbackState = "none";
+            stopSilentAnchor();
+        });
+
+        // v148: seekto ハンドラを追加 (ロック画面のシークバー対応)
+        navigator.mediaSession.setActionHandler('seekto', (details) => {
+            console.log("[MediaSession] SeekTo signal:", details.seekTime);
+            const audio = (Amplitude.getAudio && Amplitude.getAudio()) || document.getElementById('jukebox-audio');
+            if (audio && details.seekTime !== undefined) {
+                audio.currentTime = details.seekTime;
+                updatePositionState();
+            }
+        });
     }
 
     // --- UI更新 ---
@@ -2938,8 +3049,38 @@ function startPlayback(index, url, cover, gen, startTime = 0, shouldPlay = true)
 
     savePlaybackState(); // v95: 新しい曲が始まった直後にも保存
 
-    console.log(`[Gen ${gen}] Starting prefetch...`);
-    prefetchNextTrack(index);
+    console.log(`[Gen ${gen}] Prefetch scheduled in 15s to stabilize memory (v156).`);
+    setTimeout(() => {
+        if (playGeneration === gen && !isLoadingTrack) {
+            prefetchNextTrack(index);
+        }
+    }, 15000); // 15秒遅らせる
+}
+
+/**
+ * v141: Media Session の再生位置情報を更新
+ */
+let lastPositionUpdate = 0; // v144: 間引き用
+function updatePositionState() {
+    const now = Date.now();
+    // v144: CPU負荷軽減のため、1秒に1回のみ実行
+    if (now - lastPositionUpdate < 1000) return;
+    lastPositionUpdate = now;
+
+    const audio = (Amplitude.getAudio && Amplitude.getAudio()) || document.getElementById('jukebox-audio');
+    if (audio && 'setPositionState' in navigator.mediaSession) {
+        try {
+            if (!isNaN(audio.duration) && !isNaN(audio.currentTime) && isFinite(audio.duration) && isFinite(audio.currentTime)) {
+                navigator.mediaSession.setPositionState({
+                    duration: audio.duration,
+                    playbackRate: audio.playbackRate || 1.0,
+                    position: audio.currentTime
+                });
+            }
+        } catch (e) {
+            // 時々 duration が 0 の時にエラーになることがあるので抑制
+        }
+    }
 }
 
 window.initApp = initApp;

@@ -59,6 +59,31 @@ self.addEventListener('fetch', event => {
     return; // Let browser handle it
   }
 
+  // v150/154: ストリーミング・プロキシのハンドリング (直接中継方式)
+  if (event.request.url.includes('/proxy-stream')) {
+    const url = new URL(event.request.url);
+    const fileId = url.searchParams.get('fileId');
+    const token = url.searchParams.get('token');
+
+    if (fileId && token) {
+      const driveUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
+      const rangeHeader = event.request.headers.get('Range');
+      
+      const fetchHeaders = { 'Authorization': `Bearer ${token}` };
+      if (rangeHeader) fetchHeaders['Range'] = rangeHeader;
+
+      // v154: new Response で作り直さず、fetch の戻り値をそのまま返すことで 206 等の整合性を保つ
+      event.respondWith(
+        fetch(driveUrl, { headers: fetchHeaders })
+          .catch(err => {
+            console.error('[SW] Stream Proxy Fetch Error:', err);
+            return new Response('Stream Proxy Error', { status: 500 });
+          })
+      );
+      return;
+    }
+  }
+
   // v75: GETのみをキャッシュ対象とし、Google API等の外部ドメインやPOST通信を除外する
   if (event.request.method !== 'GET' || !event.request.url.startsWith(self.location.origin)) {
     return;
