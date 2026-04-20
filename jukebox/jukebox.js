@@ -1268,9 +1268,16 @@ async function initApp() {
                     if (data.access_token) {
                         const now = Date.now();
                         const expiresAt = now + (data.expires_in * 1000);
+
+                        // v152: Google does not always return a refresh token on subsequent auths.
+                        // Preserve the existing one if it's missing in the response.
+                        const oldTokenDataString = localStorage.getItem('gdrive_token');
+                        const oldTokenData = JSON.parse(oldTokenDataString || '{}');
+                        const refreshToken = data.refresh_token || oldTokenData.refresh_token;
+
                         localStorage.setItem('gdrive_token', JSON.stringify({
                             access_token: data.access_token,
-                            refresh_token: data.refresh_token, // リフレッシュトークンを保存
+                            refresh_token: refreshToken,
                             expires_at: expiresAt
                         }));
                         gapi.client.setToken({ access_token: data.access_token });
@@ -1297,6 +1304,8 @@ async function initApp() {
                 } catch (e) {
                     console.error("[Auth] Code exchange failed:", e);
                     updateStatus("Auth error: " + e.message);
+                    authBtn.innerText = "Google Drive Auth";
+                    authBtn.disabled = false; // v152: 再試行可能にする
                     if (tokenReject) {
                         tokenReject(e);
                         tokenResolve = null;
@@ -1328,6 +1337,22 @@ async function initApp() {
             authBtn.innerText = "Loading DJ charts...";
             authBtn.disabled = true;
             await startDiscovery();
+        } else if (tokenData.refresh_token) {
+            // v152: 有効期限切れだがリフレッシュトークンがある場合、起動時に自動リフレッシュを試みる
+            console.log("[Auth] Stored token expired/expiring soon. Attempting background refresh...");
+            try {
+                await ensureValidToken(true);
+                const newTokenData = JSON.parse(localStorage.getItem('gdrive_token'));
+                if (newTokenData && newTokenData.access_token) {
+                    console.log("[Auth] Background refresh successful at startup.");
+                    discoveryStarted = true;
+                    authBtn.innerText = "Loading DJ charts...";
+                    authBtn.disabled = true;
+                    await startDiscovery();
+                }
+            } catch (e) {
+                console.warn("[Auth] Background refresh failed at startup:", e);
+            }
         }
     }
     document.getElementById('custom-next').onclick = () => {
@@ -1415,7 +1440,17 @@ async function initApp() {
     }
 }
 
-authBtn.onclick = () => tokenClient.requestCode();
+authBtn.onclick = () => {
+    // v152: リフレッシュトークンがない場合は強制的にコンセント画面を出す
+    const storedToken = localStorage.getItem('gdrive_token');
+    const tokenData = storedToken ? JSON.parse(storedToken) : {};
+    if (!tokenData.refresh_token) {
+        console.log("[Auth] No refresh token found. Requesting code with prompt=consent.");
+        tokenClient.requestCode({ prompt: 'consent' });
+    } else {
+        tokenClient.requestCode();
+    }
+};
 
 // 2. フォルダスキャン
 async function startDiscovery(retryCount = 0) {
