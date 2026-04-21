@@ -22,8 +22,8 @@ let isRepeatOn = false;
 let playGeneration = 0; // 世代管理：古い再生予約をキャンセルするため
 let isInitAppDone = false; // v86: initAppの二重実行ガード
 // 集中管理（manifest.json）から取得したバージョン。未取得時はグローバル変数 or フォールバックを参照
-const getAppVersion = () => (window.JUKEBOX_VERSION && window.JUKEBOX_VERSION !== 'loading...') ? window.JUKEBOX_VERSION : "unknown";
-const APP_VERSION = getAppVersion(); // 互換性のため一旦定義するが、動的な場所では getAppVersion() を推奨
+const getAppVersion = () => (window.JUKEBOX_VERSION && window.JUKEBOX_VERSION !== 'loading...') ? window.JUKEBOX_VERSION : "v165";
+const APP_VERSION = getAppVersion();
 let currentPlaylistDate = ""; // v23: 現在のリストの日付
 let currentIsIncomplete = false; // v25: 現在のリストが未完成か
 const REFLECTION_TIME_DAYS = 15; // v35: 15日間
@@ -77,14 +77,13 @@ function withTimeout(promise, ms, label = "Operation") {
 // --- メタデータ取得キュー (並列制限用) ---
 const MetadataQueue = {
     pending: [],
+    maxConcurrent: 1, 
     running: 0,
-    maxConcurrent: 1, // v47: データベースのロックを避けるため並列数を1に制限
-    isPaused: false, // v92: 楽曲ダウンロード中の帯域確保用
-    enqueuedIds: new Set(), // v90: 同じfile.idの重複エンキューを防ぐ
-    // v90: fileId引数を追加。指定すると重複チェックが行われる。
+    isPaused: false, 
+    isSlowMode: false, 
+    enqueuedIds: new Set(), 
     add(task, fileId = null) {
         if (fileId && this.enqueuedIds.has(fileId)) {
-            console.warn(`[MetadataQueue] Skipping duplicate enqueue for fileId: ${fileId.substring(0, 8)}...`);
             return Promise.resolve();
         }
         if (fileId) this.enqueuedIds.add(fileId);
@@ -95,49 +94,39 @@ const MetadataQueue = {
                     const res = await task();
                     resolve(res);
                 } catch (e) {
-                    console.error("[MetadataQueue] Task execution failed:", e);
                     reject(e);
                 } finally {
                     this.running--;
-                    // v51.1: スタックの深さを避けるため setTimeout を挟む
-                    setTimeout(() => this.next(), 0);
+                    const delay = this.isPaused ? 5000 : (this.isSlowMode ? 8000 : 100);
+                    setTimeout(() => this.next(), delay);
                 }
             });
 
-            // 安全策：キューが止まっている（pendingがあるのにrunningが0）なら再始動
-            if (this.running === 0) {
-                this.next();
-            } else if (this.running < this.maxConcurrent) {
+            if (this.running < this.maxConcurrent) {
                 this.next();
             }
         });
     },
-    pause() {
-        this.isPaused = true;
-        console.log("[MetadataQueue] Paused.");
-    },
-    resume() {
-        this.isPaused = false;
-        console.log("[MetadataQueue] Resumed.");
-        this.next();
+    pause() { this.isPaused = true; },
+    resume() { this.isPaused = false; this.next(); },
+    setSlowMode(isSlow) {
+        this.isSlowMode = isSlow;
+        if (!isSlow) this.next();
     },
     next() {
         if (this.isPaused || this.running >= this.maxConcurrent || this.pending.length === 0) {
             return;
         }
-
         while (!this.isPaused && this.running < this.maxConcurrent && this.pending.length > 0) {
             this.running++;
             const task = this.pending.shift();
-            // console.log(`MetadataQueue: starting task. Running: ${this.running}, Pending: ${this.pending.length}`);
             task();
         }
     },
     clear() {
         this.pending = [];
-        this.running = 0; // 強制リセット
-        this.enqueuedIds.clear(); // v90: IDセットもクリア
-        console.log("MetadataQueue cleared.");
+        this.running = 0;
+        this.enqueuedIds.clear();
     }
 };
 
@@ -761,9 +750,13 @@ const syncUI = () => {
         if (actualPaused) {
             playPauseBtn.classList.remove('amplitude-playing');
             playPauseBtn.setAttribute('data-state', 'paused');
+            // v163 (v161互換): 停止中はフルスピード
+            MetadataQueue.setSlowMode(false);
         } else {
             playPauseBtn.classList.add('amplitude-playing');
             playPauseBtn.setAttribute('data-state', 'playing');
+            // v163 (v161互換): 再生中はスローモード（8秒間隔）
+            MetadataQueue.setSlowMode(true);
         }
 
         // 2. アイコンの物理的制御 (data-state に基づいた CSS で動かない場合の最終手段として直接 style を叩く)
@@ -2342,75 +2335,66 @@ async function prefetchNextTrack(currentIndex) {
         }
 
         if (targetId) {
-            // 3. fetch API でバイナリ直接取得 (CPU/メモリ・スパイク対策)
+            // 3. fetch API で先頭 1MB だけ取得 (カバーアート抽出用)
             const memBefore = performance.memory ? (performance.memory.usedJSHeapSize / 1024 / 1024).toFixed(1) : 'N/A';
             const startMs = performance.now();
 
-            MetadataQueue.pause(); // 巨大ファイルのDL中はメタデータ取得を一時停止
-            const blob = await authorizedRequest(async () => {
-                const tokenData = JSON.parse(localStorage.getItem('gdrive_token'));
-                const url = `https://www.googleapis.com/drive/v3/files/${targetId}?alt=media`;
+            MetadataQueue.pause();
+            const tokenData = JSON.parse(localStorage.getItem('gdrive_token'));
+            const url = `https://www.googleapis.com/drive/v3/files/${targetId}?alt=media`;
 
-                // v138: Service Worker への委譲を優先
-                if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-                    try {
-                        return await downloadViaServiceWorker(targetId, track.title, tokenData.access_token, signal);
-                    } catch (e) {
-                        if (e.name === 'AbortError') throw e;
-                        console.warn("[SW-Delegation] Prefetch falling back to normal fetch:", e.message);
-                    }
-                }
-
+            // v160: 先頭 1MB のみ取得してカバーアートを抽出
+            let blob;
+            try {
                 const res = await fetch(url, {
-                    headers: { 'Authorization': 'Bearer ' + tokenData.access_token },
-                    signal: signal // v92: 中断信号を渡す
+                    headers: { 
+                        'Authorization': 'Bearer ' + tokenData.access_token,
+                        'Range': 'bytes=0-1048575'
+                    },
+                    signal: signal
                 });
-                if (!res.ok) {
-                    if (res.status === 401) throw { status: 401 };
-                    throw new Error(`Fetch failed with status: ${res.status}`);
+                if (res.ok || res.status === 206) {
+                    blob = await res.blob();
                 }
-                return await res.blob();
-            }).finally(() => {
+            } catch (err) {
+                console.warn("[Prefetch] Partial fetch failed:", err);
+            } finally {
                 MetadataQueue.resume();
-            });
+            }
 
             if (signal.aborted) throw { name: 'AbortError' };
 
+            // 4. Service Worker に「バックグラウンドでの全件キャッシュ」を依頼
+            //    これにより、実際の再生時には SW がキャッシュから（ストリーミングで）返すようになる。
+            ensureTrackCached(targetId, track.title, tokenData.access_token, signal).catch(e => {
+                console.warn("[Prefetch] Background cache failed:", e);
+            });
+
             const endMs = performance.now();
             const memAfter = performance.memory ? (performance.memory.usedJSHeapSize / 1024 / 1024).toFixed(1) : 'N/A';
-            console.log(`[Performance] Fetch Prefetch taking ${Math.round(endMs - startMs)}ms. Heap: ${memBefore}MB -> ${memAfter}MB`);
+            console.log(`[Performance] Fetch Prefetch (1MB) taking ${Math.round(endMs - startMs)}ms. Heap: ${memBefore}MB -> ${memAfter}MB`);
 
-            // 4. 古い先読みデータがあれば解放して更新
-            if (nextBlobUrl) URL.revokeObjectURL(nextBlobUrl);
-            if (nextCoverUrl && nextCoverUrl.startsWith('blob:')) URL.revokeObjectURL(nextCoverUrl);
-
-            nextBlobUrl = URL.createObjectURL(blob);
-            nextTrackIndex = targetIndex;
-
-            // 5. カバーアートも先読み（jsmediatags）
+            // 5. カバーアート抽出（jsmediatags）
             let coverUrl = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
-            try {
-                if (window.jsmediatags) {
-                    const tags = await new Promise((res, rej) => {
-                        window.jsmediatags.read(blob, {
-                            onSuccess: t => res(t.tags),
-                            onError: e => rej(e)
+            if (blob) {
+                try {
+                    if (window.jsmediatags) {
+                        const tags = await new Promise((res, rej) => {
+                            window.jsmediatags.read(blob, {
+                                onSuccess: t => res(t.tags),
+                                onError: e => rej(e)
+                            });
                         });
-                    });
-                    if (tags && tags.picture) {
-                        const { data, format } = tags.picture;
-                        // v102: image/jpg → image/jpeg に正規化（ブラウザ互換性）
-                        const mimeType = (format === 'image/jpg') ? 'image/jpeg' : (format || 'image/jpeg');
-                        coverUrl = URL.createObjectURL(new Blob([new Uint8Array(data)], { type: mimeType }));
-                        console.log(`[CoverArt] Prefetch OK: format=${format}, size=${data.length}`);
-                    } else {
-                        console.log(`[CoverArt] Prefetch: tags read OK but no picture tag. tags keys: ${tags ? Object.keys(tags).join(',') : 'null'}`);
+                        if (tags && tags.picture) {
+                            const { data, format } = tags.picture;
+                            const mimeType = (format === 'image/jpg') ? 'image/jpeg' : (format || 'image/jpeg');
+                            coverUrl = URL.createObjectURL(new Blob([new Uint8Array(data)], { type: mimeType }));
+                            console.log(`[CoverArt] Prefetch OK: format=${format}, size=${data.length}`);
+                        }
                     }
-                } else {
-                    console.warn('[CoverArt] jsmediatags not loaded.');
+                } catch (e) {
+                    console.warn(`[CoverArt] Prefetch extraction failed: ${e.message}`);
                 }
-            } catch (e) {
-                console.warn(`[CoverArt] Prefetch extraction failed: ${e.type || e.message || JSON.stringify(e)}`);
             }
 
             if (signal.aborted) {
@@ -2418,7 +2402,16 @@ async function prefetchNextTrack(currentIndex) {
                 throw { name: 'AbortError' };
             }
 
+            // 6. 古い先読みデータがあれば解放して更新
+            if (nextBlobUrl && nextBlobUrl.startsWith('blob:')) URL.revokeObjectURL(nextBlobUrl);
+            if (nextCoverUrl && nextCoverUrl.startsWith('blob:')) URL.revokeObjectURL(nextCoverUrl);
+
+            // 重要: 先読み audio 用 URL は Blob URL ではなく、ストリームURLをセットする
+            const token = gapi.client.getToken().access_token;
+            nextBlobUrl = `./proxy-stream?fileId=${targetId}&token=${encodeURIComponent(token)}`;
             nextCoverUrl = coverUrl;
+            nextTrackIndex = targetIndex;
+
             console.log(`Prefetch complete: ${track.title}`);
             updateStatus(`✅ Pre-fetched: ${track.title}`);
             setTimeout(() => {
@@ -2520,7 +2513,7 @@ function playNextTrack() {
 
 function clearPrefetch() {
     nextTrackIndex = -1;
-    if (nextBlobUrl) URL.revokeObjectURL(nextBlobUrl);
+    if (nextBlobUrl && nextBlobUrl.startsWith('blob:')) URL.revokeObjectURL(nextBlobUrl);
     nextBlobUrl = null;
     nextCoverUrl = null;
     console.log("Prefetch cleared.");
@@ -2531,76 +2524,63 @@ function clearPrefetch() {
 }
 
 /**
- * v138: Service Worker にダウンロードを委譲する
+ * v138/160: Service Worker にダウンロードを依頼する（キャッシュに入れるだけで、Blobとしては返さない）
  */
-async function downloadViaServiceWorker(targetId, title, token, signal) {
+async function ensureTrackCached(targetId, title, token, signal) {
     const reg = await navigator.serviceWorker.ready;
-    if (!reg.active) throw new Error("Service Worker not active");
+    if (!reg.active) return false;
+
+    const url = `https://www.googleapis.com/drive/v3/files/${targetId}?alt=media`;
+    
+    // v160: 既にキャッシュにあるか確認
+    try {
+        const cache = await caches.open('jukebox-downloads');
+        const existing = await cache.match(url);
+        if (existing) {
+            console.log(`[SW-Cache] Already cached: ${title}`);
+            return true;
+        }
+    } catch (e) {
+        console.warn("[SW-Cache] Cache check failed:", e);
+    }
 
     const fetchId = `delegated-${targetId}-${Date.now()}`;
-    const url = `https://www.googleapis.com/drive/v3/files/${targetId}?alt=media`;
-
-    console.log(`[SW-Delegation] Requesting: ${title} (ID: ${fetchId})`);
+    console.log(`[SW-Delegation] Requesting background download: ${title}`);
     
-    // SWにダウンロードを依頼
     reg.active.postMessage({
         type: 'DOWNLOAD_TRACK',
         url: url,
-        token: token, // v139: トークンをヘッダーに含めるため別出し
+        token: token,
         fetchId: fetchId
     });
 
+    // 完了を待つ（任意だが、プリフェッチ完了通知のために待機）
     return new Promise((resolve, reject) => {
-        const timeoutId = setTimeout(() => {
-            cleanup();
-            reject(new Error("SW Download Timeout (60s)"));
-        }, 60000);
-
-        const checkCache = async () => {
-            try {
-                const cache = await caches.open('jukebox-downloads');
-                const response = await cache.match(url);
-                if (response) {
-                    cleanup();
-                    const blob = await response.blob();
-                    await cache.delete(url);
-                    resolve(blob);
-                    return true;
-                }
-            } catch (e) {
-                console.warn("[SW-Delegation] cache check failed:", e);
-            }
-            return false;
-        };
-
         const messageHandler = (event) => {
             if (!event.data || !event.data.type) return;
-            
-            if (event.data.type === 'DOWNLOAD_SUCCESS' && event.data.fetchId === fetchId) {
-                checkCache();
-            } else if (event.data.type === 'DOWNLOAD_ERROR' && event.data.fetchId === fetchId) {
-                cleanup();
-                reject(new Error(`SW Download Failed: ${event.data.status || 'unknown'}`));
+            if (event.data.fetchId === fetchId) {
+                if (event.data.type === 'DOWNLOAD_SUCCESS') {
+                    navigator.serviceWorker.removeEventListener('message', messageHandler);
+                    resolve(true);
+                } else if (event.data.type === 'DOWNLOAD_ERROR') {
+                    navigator.serviceWorker.removeEventListener('message', messageHandler);
+                    reject(new Error(`SW Download Failed: ${event.data.status}`));
+                }
             }
         };
-
-        const intervalId = setInterval(checkCache, 2000);
         navigator.serviceWorker.addEventListener('message', messageHandler);
-
-        function cleanup() {
-            clearTimeout(timeoutId);
-            clearInterval(intervalId);
-            navigator.serviceWorker.removeEventListener('message', messageHandler);
-        }
-
+        
         if (signal) {
             signal.addEventListener('abort', () => {
-                cleanup();
+                navigator.serviceWorker.removeEventListener('message', messageHandler);
                 reject(new Error("AbortError"));
             });
         }
-        
-        checkCache();
+        // タイムアウト設定
+        setTimeout(() => {
+            navigator.serviceWorker.removeEventListener('message', messageHandler);
+            resolve(false); // タイムアウトはエラーにせず、単に「キャッシュ未完了」とする
+        }, 120000);
     });
 }
 
@@ -2659,7 +2639,7 @@ async function playWithAmplitude(index, startTime = 0, shouldPlay = true) {
 
         // --- 2. 先読み(Prefetch)済みのURLがあるかチェック ---
         if (index === nextTrackIndex && nextBlobUrl) {
-            if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
+            if (currentBlobUrl && currentBlobUrl.startsWith('blob:')) URL.revokeObjectURL(currentBlobUrl);
             currentBlobUrl = nextBlobUrl;
             
             // v141: 古いカバーアートを解放
@@ -2710,7 +2690,7 @@ async function playWithAmplitude(index, startTime = 0, shouldPlay = true) {
         if (signal.aborted) throw { name: 'AbortError' };
 
         if (targetId) {
-            updateStatus(`Downloading: ${track.title}`);
+            updateStatus(`Preparing: ${track.title}`);
 
             MetadataQueue.pause(); // ダウンロード中はメタデータ取得を一時停止
             const fetchFile = async () => {
@@ -2718,16 +2698,7 @@ async function playWithAmplitude(index, startTime = 0, shouldPlay = true) {
                     const tokenData = JSON.parse(localStorage.getItem('gdrive_token'));
                     const url = `https://www.googleapis.com/drive/v3/files/${targetId}?alt=media`;
 
-                    // v138: Service Worker への委譲を優先
-                    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-                        try {
-                            return await downloadViaServiceWorker(targetId, track.title, tokenData.access_token, signal);
-                        } catch (e) {
-                            if (e.name === 'AbortError') throw e;
-                            console.warn("[SW-Delegation] Normal fetch fallback due to:", e.message);
-                        }
-                    }
-
+                    // v160: 常に先頭 1MB のみ取得してカバーアート抽出に使用
                     const res = await fetch(url, {
                         headers: { 
                             'Authorization': 'Bearer ' + tokenData.access_token,
@@ -2918,10 +2889,11 @@ function startPlayback(index, url, cover, gen, startTime = 0, shouldPlay = true)
         }
     } else {
         // フォールバック: blob URL でない場合は Amplitude.playNow() を使用
+        // v160: url が undefined にならないよう保証
         const songData = {
             name: fullTitle,
             artist: track.artist || "Unknown",
-            url: url,
+            url: url || SILENT_SOUND_URL,
             cover_art_url: cover
         };
         if (shouldPlay) {

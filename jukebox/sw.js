@@ -59,7 +59,7 @@ self.addEventListener('fetch', event => {
     return; // Let browser handle it
   }
 
-  // v150/154: ストリーミング・プロキシのハンドリング (直接中継方式)
+  // v150/154/160: ストリーミング・プロキシのハンドリング (キャッシュ優先方式)
   if (event.request.url.includes('/proxy-stream')) {
     const url = new URL(event.request.url);
     const fileId = url.searchParams.get('fileId');
@@ -69,17 +69,34 @@ self.addEventListener('fetch', event => {
       const driveUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
       const rangeHeader = event.request.headers.get('Range');
       
-      const fetchHeaders = { 'Authorization': `Bearer ${token}` };
-      if (rangeHeader) fetchHeaders['Range'] = rangeHeader;
+      event.respondWith((async () => {
+        // v160: まずは 'jukebox-downloads' キャッシュを確認
+        const cache = await caches.open('jukebox-downloads');
+        const cachedResponse = await cache.match(driveUrl);
+        
+        if (cachedResponse) {
+          console.log('[SW] Serving from cache:', fileId);
+          // 206 Partial Content の場合は caches.match がうまく扱えない場合があるが、
+          // audio 要素からのリクエストは Range ヘッダーを含むため、
+          // そのまま返すとブラウザ側でパースできない可能性がある。
+          // ただし、Cache API に入っているのが 200 OK のレスポンスであれば、
+          // ブラウザが自動的にスライスしてくれる。
+          return cachedResponse;
+        }
 
-      // v154: new Response で作り直さず、fetch の戻り値をそのまま返すことで 206 等の整合性を保つ
-      event.respondWith(
-        fetch(driveUrl, { headers: fetchHeaders })
-          .catch(err => {
-            console.error('[SW] Stream Proxy Fetch Error:', err);
-            return new Response('Stream Proxy Error', { status: 500 });
-          })
-      );
+        // キャッシュになければ通常通り Fetch
+        const fetchHeaders = { 'Authorization': `Bearer ${token}` };
+        if (rangeHeader) fetchHeaders['Range'] = rangeHeader;
+
+        try {
+          const response = await fetch(driveUrl, { headers: fetchHeaders });
+          // 注意: ここで cache.put しない（巨大なため、明示的なプリフェッチ時のみに限定）
+          return response;
+        } catch (err) {
+          console.error('[SW] Stream Proxy Fetch Error:', err);
+          return new Response('Stream Proxy Error', { status: 500 });
+        }
+      })());
       return;
     }
   }
