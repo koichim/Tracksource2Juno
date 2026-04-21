@@ -22,7 +22,7 @@ let isRepeatOn = false;
 let playGeneration = 0; // 世代管理：古い再生予約をキャンセルするため
 let isInitAppDone = false; // v86: initAppの二重実行ガード
 // 集中管理（manifest.json）から取得したバージョン。未取得時はグローバル変数 or フォールバックを参照
-const getAppVersion = () => (window.JUKEBOX_VERSION && window.JUKEBOX_VERSION !== 'loading...') ? window.JUKEBOX_VERSION : "v165";
+const getAppVersion = () => (window.JUKEBOX_VERSION && window.JUKEBOX_VERSION !== 'loading...') ? window.JUKEBOX_VERSION : "v166";
 const APP_VERSION = getAppVersion();
 let currentPlaylistDate = ""; // v23: 現在のリストの日付
 let currentIsIncomplete = false; // v25: 現在のリストが未完成か
@@ -1771,9 +1771,29 @@ async function findTracksFolder(yearId, yearName, retryCount = 0) {
                     continue;
                 }
 
-                const folderYear = parseInt(yearName);
-                const currentYear = new Date().getFullYear();
-                if (folderYear < currentYear - 1) {
+                // v164: 「今年または去年」の代わりに「過去半年（180日）以内」の判定に変更
+                const fileDateStr = (file.name.match(/^\d{4}-\d{2}-\d{2}/) || [""])[0];
+                const halfYearMs = 180 * 24 * 60 * 60 * 1000;
+                
+                let isRecent = false;
+                if (fileDateStr) {
+                    const fDate = new Date(fileDateStr).getTime();
+                    if (!isNaN(fDate) && (now - fDate) < halfYearMs) {
+                        isRecent = true;
+                    }
+                } else {
+                    // 日付が名前についていない場合（favorites.json など）はフォルダの年で判定
+                    const folderYear = parseInt(yearName);
+                    const currentYear = new Date().getFullYear();
+                    if (folderYear >= currentYear) {
+                        isRecent = true;
+                    } else if (folderYear === currentYear - 1) {
+                        // 1月〜6月なら、去年のフォルダも「半年以内」が含まれる可能性があるためチェック対象にする
+                        if (new Date().getMonth() < 6) isRecent = true;
+                    }
+                }
+
+                if (!isRecent) {
                     continue;
                 }
             } else {
