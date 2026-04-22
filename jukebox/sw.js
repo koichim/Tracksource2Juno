@@ -50,6 +50,24 @@ async function getRangeResponse(request, response) {
   }
 }
 
+/**
+ * キャッシュのアイテム数が上限を超えた場合、古いものから削除する
+ */
+async function pruneCache(cacheName, maxItems) {
+  try {
+    const cache = await caches.open(cacheName);
+    const keys = await cache.keys();
+    if (keys.length > maxItems) {
+      // 挿入順（古い順）に取得される前提で削除
+      const keysToDelete = keys.slice(0, keys.length - maxItems);
+      await Promise.all(keysToDelete.map(key => cache.delete(key)));
+      console.log(`[SW] Pruned ${keysToDelete.length} old tracks from ${cacheName}`);
+    }
+  } catch (err) {
+    console.error('[SW] Cache prune error:', err);
+  }
+}
+
 self.addEventListener('install', event => {
   self.skipWaiting(); // 新しいSWをすぐに待機状態からアクティブにする
   event.waitUntil(
@@ -179,6 +197,9 @@ self.addEventListener('message', event => {
         if (response.ok) {
           const cache = await caches.open('jukebox-downloads');
           await cache.put(url, response);
+          
+          // キャッシュが肥大化しないように最大5曲（約50MB）に制限
+          await pruneCache('jukebox-downloads', 5);
           
           // 完了をメインスレッドに通知
           const clients = await self.clients.matchAll();
