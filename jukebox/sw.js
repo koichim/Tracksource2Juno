@@ -11,6 +11,45 @@ const ASSETS_TO_CACHE = [
   'https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js'
 ];
 
+/**
+ * v169: 200 OK のレスポンスから Range リクエストに応じた 206 Partial Content を生成する
+ */
+async function getRangeResponse(request, response) {
+  const rangeHeader = request.headers.get('Range');
+  if (!rangeHeader) return response;
+
+  const bytes = rangeHeader.match(/^bytes=(\d+)-(\d+)?$/);
+  if (!bytes) return response;
+
+  try {
+    const blob = await response.blob();
+    const start = parseInt(bytes[1], 10);
+    const end = bytes[2] ? parseInt(bytes[2], 10) : blob.size - 1;
+
+    if (start >= blob.size) {
+      return new Response('', {
+        status: 416,
+        headers: { 'Content-Range': `bytes */${blob.size}` }
+      });
+    }
+
+    const slicedBlob = blob.slice(start, end + 1);
+    const newHeaders = new Headers(response.headers);
+    newHeaders.set('Content-Range', `bytes ${start}-${end}/${blob.size}`);
+    newHeaders.set('Content-Length', slicedBlob.size);
+    newHeaders.set('Accept-Ranges', 'bytes');
+
+    return new Response(slicedBlob, {
+      status: 206,
+      statusText: 'Partial Content',
+      headers: newHeaders
+    });
+  } catch (err) {
+    console.error('[SW] Range generation failed:', err);
+    return response;
+  }
+}
+
 self.addEventListener('install', event => {
   self.skipWaiting(); // 新しいSWをすぐに待機状態からアクティブにする
   event.waitUntil(
@@ -76,12 +115,9 @@ self.addEventListener('fetch', event => {
         
         if (cachedResponse) {
           console.log('[SW] Serving from cache:', fileId);
-          // 206 Partial Content の場合は caches.match がうまく扱えない場合があるが、
-          // audio 要素からのリクエストは Range ヘッダーを含むため、
-          // そのまま返すとブラウザ側でパースできない可能性がある。
-          // ただし、Cache API に入っているのが 200 OK のレスポンスであれば、
-          // ブラウザが自動的にスライスしてくれる。
-          return cachedResponse;
+          // v169: Cache API からの 200 OK をそのまま返すとブラウザが duration を Infinity と
+          // 誤認してシークできない場合があるため、明示的に 206 Partial Content に変換する
+          return await getRangeResponse(event.request, cachedResponse);
         }
 
         // キャッシュになければ通常通り Fetch
