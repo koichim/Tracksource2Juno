@@ -22,7 +22,7 @@ let isRepeatOn = false;
 let playGeneration = 0; // 世代管理：古い再生予約をキャンセルするため
 let isInitAppDone = false; // v86: initAppの二重実行ガード
 // 集中管理（manifest.json）から取得したバージョン。未取得時はグローバル変数 or フォールバックを参照
-const getAppVersion = () => (window.JUKEBOX_VERSION && window.JUKEBOX_VERSION !== 'loading...') ? window.JUKEBOX_VERSION : "v170";
+const getAppVersion = () => (window.JUKEBOX_VERSION && window.JUKEBOX_VERSION !== 'loading...') ? window.JUKEBOX_VERSION : "v171";
 const APP_VERSION = getAppVersion();
 let currentPlaylistDate = ""; // v23: 現在のリストの日付
 let currentIsIncomplete = false; // v25: 現在のリストが未完成か
@@ -710,6 +710,8 @@ function savePlaybackState() {
             trackIndex: currentTrackIndex,
             currentTime: audio.currentTime,
             paused: audio.paused, // v96: 停止状態も保存
+            isShuffleOn: isShuffleOn,
+            isRepeatOn: isRepeatOn,
             timestamp: Date.now()
         };
         localStorage.setItem('jukebox_resume_state', JSON.stringify(state));
@@ -1174,6 +1176,35 @@ async function initApp() {
                 resumeState = null;
             } else {
                 console.log("[Resume] Found saved state:", resumeState);
+                
+                // v97: ループとランダムの状態を復元
+                if (resumeState.isShuffleOn !== undefined) {
+                    isShuffleOn = resumeState.isShuffleOn;
+                    const shuffleBtn = document.getElementById('shuffle');
+                    if (shuffleBtn) {
+                        if (isShuffleOn) {
+                            shuffleBtn.classList.add('amplitude-shuffle-on');
+                            shuffleBtn.style.opacity = "1";
+                        } else {
+                            shuffleBtn.classList.remove('amplitude-shuffle-on');
+                            shuffleBtn.style.opacity = "0.5";
+                        }
+                    }
+                }
+                
+                if (resumeState.isRepeatOn !== undefined) {
+                    isRepeatOn = resumeState.isRepeatOn;
+                    const repeatBtn = document.getElementById('repeat');
+                    if (repeatBtn) {
+                        if (isRepeatOn) {
+                            repeatBtn.classList.add('amplitude-repeat-on');
+                            repeatBtn.style.opacity = "1";
+                        } else {
+                            repeatBtn.classList.remove('amplitude-repeat-on');
+                            repeatBtn.style.opacity = "0.5";
+                        }
+                    }
+                }
             }
         }
     } catch (e) {
@@ -1229,6 +1260,32 @@ async function initApp() {
                 // 二重発火によるデッドロックを防止する。
             }
         });
+        
+        // v171: Amplitude.init によって初期化されたUIを、復元した状態に合わせて再設定する
+        const shuffleBtn = document.getElementById('shuffle');
+        if (shuffleBtn) {
+            if (isShuffleOn) {
+                shuffleBtn.classList.add('amplitude-shuffle-on');
+                shuffleBtn.style.opacity = "1";
+                if (Amplitude.setShuffle) Amplitude.setShuffle(true);
+            } else {
+                shuffleBtn.classList.remove('amplitude-shuffle-on');
+                shuffleBtn.style.opacity = "0.5";
+                if (Amplitude.setShuffle) Amplitude.setShuffle(false);
+            }
+        }
+        const repeatBtn = document.getElementById('repeat');
+        if (repeatBtn) {
+            if (isRepeatOn) {
+                repeatBtn.classList.add('amplitude-repeat-on');
+                repeatBtn.style.opacity = "1";
+                if (Amplitude.setRepeat) Amplitude.setRepeat(true);
+            } else {
+                repeatBtn.classList.remove('amplitude-repeat-on');
+                repeatBtn.style.opacity = "0.5";
+                if (Amplitude.setRepeat) Amplitude.setRepeat(false);
+            }
+        }
     }
 
     try {
