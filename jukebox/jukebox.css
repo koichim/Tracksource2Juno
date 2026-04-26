@@ -313,14 +313,11 @@ body {
 .controls {
     display: flex;
     justify-content: center;
-    /* 横方向の中央寄せ */
     align-items: center;
-    /* 縦方向の中央寄せ（これで高さが揃います） */
     width: 100%;
     padding: 10px 0 15px 0;
-    /* 下部の余白なども全体的に圧縮 */
     background-color: #111;
-    /* アイコン同士の間隔を 30px に広げて、全体をゆったりさせる */
+    /* v172: お気に入りボタンを移動したので間隔を 30px に戻す */
     gap: 30px;
 }
 
@@ -398,14 +395,33 @@ body {
     fill: #FFF;
 }
 
-/* シャッフル・リピート (20px: 控えめなサイズ) */
+/* シャッフル・リピート・お気に入り */
 .amplitude-shuffle,
-.amplitude-repeat {
+.amplitude-repeat,
+.favorite-button {
     cursor: pointer;
-    width: 20px !important;
-    height: 20px !important;
+    width: 28px !important;
+    height: 28px !important;
     display: flex;
     align-items: center;
+    justify-content: center;
+    z-index: 10;
+}
+
+.favorite-button .heart-filled {
+    display: none !important;
+}
+
+.favorite-button .heart-empty {
+    display: block !important;
+}
+
+.favorite-button.is-favorite .heart-filled {
+    display: block !important;
+}
+
+.favorite-button.is-favorite .heart-empty {
+    display: none !important;
 }
 
 .amplitude-shuffle svg,
@@ -424,9 +440,17 @@ body {
 
 /* 7. シークバー */
 .progress-container {
-    width: 85%;
+    width: 90%;
     margin: 10px auto 25px auto;
-    /* display: flex はここでは使いません */
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.progress-main-group {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
 }
 
 /* バーとつまみを重ねるための外枠 */
@@ -693,6 +717,18 @@ button#auth_btn:disabled {
     background: rgba(85, 181, 96, 0.2);
     color: #55b560;
     font-weight: 600;
+}
+
+/* v172: My Favorites プレイリストの特別スタイル */
+.custom-playlist-item.special-favorites {
+    background: rgba(85, 181, 96, 0.1);
+    border-bottom: 1px solid rgba(85, 181, 96, 0.3);
+}
+
+.custom-playlist-item.special-favorites::before {
+    content: "♥";
+    margin-right: 8px;
+    color: #55b560;
 }
 
 /* スクロールバーのカスタマイズ (リスト内) */

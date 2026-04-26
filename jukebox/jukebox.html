@@ -150,15 +150,27 @@
         </div>
 
         <div class="progress-container">
-            <!-- バーとつまみのエリア -->
-            <div class="bar-wrapper">
-                <progress class="jukebox-song-played-progress" value="0" max="100"></progress>
-                <input type="range" class="jukebox-song-slider" step=".1" min="0" max="100" value="0" />
+            <!-- v173: お気に入りボタンをシークバーの左に配置 -->
+            <div id="favorite-toggle" class="favorite-button">
+                <svg class="heart-empty" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#666" stroke-width="2">
+                    <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l8.78-8.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+                </svg>
+                <svg class="heart-filled" width="20" height="20" viewBox="0 0 24 24" fill="#55b560" style="display:none;">
+                    <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l8.78-8.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+                </svg>
             </div>
-            <!-- 時間表示のエリア -->
-            <div class="time-container">
-                <span class="amplitude-current-time">00:00</span>
-                <span class="amplitude-duration-time">00:00</span>
+
+            <div class="progress-main-group">
+                <!-- バーとつまみのエリア -->
+                <div class="bar-wrapper">
+                    <progress class="jukebox-song-played-progress" value="0" max="100"></progress>
+                    <input type="range" class="jukebox-song-slider" step=".1" min="0" max="100" value="0" />
+                </div>
+                <!-- 時間表示のエリア -->
+                <div class="time-container">
+                    <span class="amplitude-current-time">00:00</span>
+                    <span class="amplitude-duration-time">00:00</span>
+                </div>
             </div>
         </div>
     </div>

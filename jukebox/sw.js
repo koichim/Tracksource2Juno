@@ -105,8 +105,8 @@ self.addEventListener('activate', event => {
 });
 
 self.addEventListener('fetch', event => {
-  // v86: プロキシ通信は Service Worker を完全にバイパスさせる（最優先）
-  if (event.request.url.includes('auth_proxy.cgi')) {
+  // v172: プロキシ通信は Service Worker を完全にバイパスさせる（最優先）
+  if (event.request.url.includes('auth_proxy.cgi') || event.request.url.includes('favorites.cgi')) {
     return;
   }
 
@@ -118,6 +118,7 @@ self.addEventListener('fetch', event => {
 
   // v150/154/160: ストリーミング・プロキシのハンドリング (キャッシュ優先方式)
   if (event.request.url.includes('/proxy-stream')) {
+    console.log('[SW] Intercepted proxy-stream request:', event.request.url);
     const url = new URL(event.request.url);
     const fileId = url.searchParams.get('fileId');
     const token = url.searchParams.get('token');

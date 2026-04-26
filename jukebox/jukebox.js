@@ -6,6 +6,11 @@ const SCOPES = 'https://www.googleapis.com/auth/drive.readonly';
 let tokenClient, gapiInited = false, gisInited = false;
 let tokenResolve, tokenReject; // v67: Token refresh Promise state
 let tokenIsMandatory = false;  // v73: 期限切れでの更新なら真、予備の更新なら偽
+
+// v173: My Favorites management & Stabilization
+let favoritesSet = new Set(); // mp3_file paths
+let favoritesPlaylistData = { chart_artist: "", chart_title: "My Favorites", chart: [] };
+const SPECIAL_MY_FAVORITES = "SPECIAL_MY_FAVORITES";
 let discoveryStarted = false; // v62: サイレントリフレッシュ時の二重走査防止用
 let currentPlaylist = [], currentTrackIndex = -1, currentYearName = "";
 let isDiscoveryInProgress = false;   // v145: 初期化中の通信衝突防止用
@@ -1024,14 +1029,122 @@ async function fetchUserInfo() {
         });
         if (!res.ok) return;
         const data = await res.json();
-        if (data.user && data.user.emailAddress) {
-            localStorage.setItem('gdrive_user_email', data.user.emailAddress);
-            console.log("[Auth] Stored user email for hint:", data.user.emailAddress);
+        if (data.user) {
+            if (data.user.emailAddress) {
+                localStorage.setItem('gdrive_user_email', data.user.emailAddress);
+            }
+            if (data.user.displayName) {
+                localStorage.setItem('gdrive_user_name', data.user.displayName);
+                console.log("[Auth] Stored user name:", data.user.displayName);
+            }
         }
     } catch (e) {
         console.warn("[Auth] Failed to fetch user info for hint:", e);
     }
 }
+
+/**
+ * v172: My Favorites 管理
+ */
+const FavoritesManager = {
+    async init(providedUserName) {
+        const userName = providedUserName || localStorage.getItem('gdrive_user_name') || "User";
+        updateStatus("Loading My Favorites from server...");
+        
+        try {
+            const res = await fetch('./favorites.cgi', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'load', username: userName })
+            });
+            const content = await res.json();
+            console.log("[Favorites] Received content from server:", content);
+            if (content && content.chart) {
+                favoritesPlaylistData = content;
+                favoritesSet = new Set(content.chart.map(t => t.mp3_file).filter(p => !!p));
+                console.log(`[Favorites] Loaded ${favoritesSet.size} tracks from server.`, Array.from(favoritesSet));
+            }
+            this.updateHeartIcon();
+        } catch (e) {
+            console.error("[Favorites] Initialization failed:", e);
+        }
+    },
+
+    async save() {
+        const userName = localStorage.getItem('gdrive_user_name');
+        if (!userName || userName === "User") {
+            console.warn("[Favorites] Skipping save: valid username not yet available.");
+            return;
+        }
+        try {
+            const res = await fetch('./favorites.cgi', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    action: 'save', 
+                    username: userName, 
+                    data: favoritesPlaylistData 
+                })
+            });
+            const result = await res.json();
+            if (result.status === "success") {
+                console.log("[Favorites] Saved to server.");
+            } else {
+                throw new Error(result.error || "Unknown error");
+            }
+        } catch (e) {
+            console.error("[Favorites] Save failed:", e);
+        }
+    },
+
+    getCurrentSong() {
+        if (currentTrackIndex >= 0 && currentPlaylist[currentTrackIndex]) {
+            return currentPlaylist[currentTrackIndex];
+        }
+        return Amplitude.getActiveSongMetadata();
+    },
+
+    updateHeartIcon() {
+        const currentSong = this.getCurrentSong();
+        const toggle = document.getElementById('favorite-toggle');
+        if (!toggle) return;
+
+        // console.log("[Favorites] Updating icon. Current song mp3_file:", currentSong ? currentSong.mp3_file : "null");
+
+        if (currentSong && currentSong.mp3_file && favoritesSet.has(currentSong.mp3_file)) {
+            toggle.classList.add('is-favorite');
+        } else {
+            toggle.classList.remove('is-favorite');
+        }
+    },
+
+    async toggle() {
+        // console.log("[Favorites] Toggle clicked.");
+        const currentSong = this.getCurrentSong();
+        // console.log("[Favorites] Active song metadata:", currentSong);
+        if (!currentSong || !currentSong.mp3_file) {
+            console.warn("[Favorites] No active song or mp3_file missing.");
+            return;
+        }
+
+        const mp3Path = currentSong.mp3_file;
+        if (favoritesSet.has(mp3Path)) {
+            favoritesSet.delete(mp3Path);
+            favoritesPlaylistData.chart = favoritesPlaylistData.chart.filter(t => t.mp3_file !== mp3Path);
+        } else {
+            favoritesSet.add(mp3Path);
+            const entry = {
+                title: currentSong.title || currentSong.name || "Unknown Track",
+                artist: currentSong.artist || "Unknown Artist",
+                version: currentSong.version || "",
+                mp3_file: mp3Path
+            };
+            favoritesPlaylistData.chart.unshift(entry);
+        }
+        this.updateHeartIcon();
+        await this.save();
+    }
+};
 
 /**
  * v93: GAPIを使わずにファイルを検索する (AbortController対応)
@@ -1166,6 +1279,21 @@ async function initApp() {
     isInitAppDone = true;
     Logger.init(); // ロガーを最速で初期化
 
+    let userInfo = null;
+    let userName = "User";
+    
+    // v172: ハードリフレッシュ直後など、SWがページを制御(control)できていない状態での
+    // proxy-stream へのアクセスによる 404 を防ぐため、controller が準備できるのを待つ
+    if ('serviceWorker' in navigator && !navigator.serviceWorker.controller) {
+        console.log("[SW] Waiting for Service Worker to take control...");
+        await new Promise(resolve => {
+            navigator.serviceWorker.addEventListener('controllerchange', resolve, { once: true });
+            // 万が一のためのタイムアウト（3秒）
+            setTimeout(resolve, 3000);
+        });
+        console.log("[SW] Service Worker is now controlling the page.");
+    }
+
     // v95: レジューム状態の読み込み
     try {
         const saved = localStorage.getItem('jukebox_resume_state');
@@ -1254,6 +1382,10 @@ async function initApp() {
                         console.log("Player state changed to:", state);
                         savePlaybackState(); // v95: 状態変化時に保存
                     }
+                },
+                // v172: Update heart icon when track changes
+                song_change: function () {
+                    FavoritesManager.updateHeartIcon();
                 }
                 // v62: song_ended コールバックを削除。
                 // ネイティブ audio.onended（世代チェック付き）と監視タイマーに一本化することで、
@@ -1345,12 +1477,16 @@ async function initApp() {
                         if (!discoveryStarted) {
                             discoveryStarted = true;
                             authBtn.disabled = true;
-                            fetchUserInfo();
+                            userInfo = await fetchUserInfo();
+                            userName = (userInfo && userInfo.name) ? userInfo.name : (localStorage.getItem('gdrive_user_name') || "User");
+                            await FavoritesManager.init(userName);
                             await startDiscovery();
                         } else {
                             console.log(`[Auth] Initial authorization successful. Valid for ${data.expires_in}s.`);
                             updateStatus("Authorization fixed.");
-                            fetchUserInfo();
+                            userInfo = await fetchUserInfo();
+                            userName = (userInfo && userInfo.name) ? userInfo.name : (localStorage.getItem('gdrive_user_name') || "User");
+                            await FavoritesManager.init(userName);
                         }
                     } else {
                         throw new Error(data.error || "Failed to exchange code");
@@ -1390,6 +1526,9 @@ async function initApp() {
             gapi.client.setToken({ access_token: tokenData.access_token });
             authBtn.innerText = "Loading DJ charts...";
             authBtn.disabled = true;
+            userInfo = await fetchUserInfo();
+            userName = (userInfo && userInfo.name) ? userInfo.name : (localStorage.getItem('gdrive_user_name') || "User");
+            await FavoritesManager.init(userName);
             await startDiscovery();
         } else if (tokenData.refresh_token) {
             // v152: 有効期限切れだがリフレッシュトークンがある場合、起動時に自動リフレッシュを試みる
@@ -1402,6 +1541,9 @@ async function initApp() {
                     discoveryStarted = true;
                     authBtn.innerText = "Loading DJ charts...";
                     authBtn.disabled = true;
+                    userInfo = await fetchUserInfo();
+                    userName = (userInfo && userInfo.name) ? userInfo.name : (localStorage.getItem('gdrive_user_name') || "User");
+                    await FavoritesManager.init(userName);
                     await startDiscovery();
                 }
             } catch (e) {
@@ -1433,6 +1575,10 @@ async function initApp() {
             this.style.opacity = "0.5";
         }
         clearPrefetch();
+    };
+
+    document.getElementById('favorite-toggle').onclick = () => {
+        FavoritesManager.toggle();
     };
 
     document.getElementById('repeat').onclick = function () {
@@ -1492,6 +1638,13 @@ async function initApp() {
     if (shareLogsBtn) {
         shareLogsBtn.onclick = () => Logger.export();
     }
+
+    // v172: Initialize Favorites after Auth is ready
+    if (discoveryStarted) {
+        userInfo = await fetchUserInfo();
+        userName = (userInfo && userInfo.name) ? userInfo.name : (localStorage.getItem('gdrive_user_name') || "User");
+        await FavoritesManager.init(userName);
+    }
 }
 
 authBtn.onclick = () => {
@@ -1550,6 +1703,13 @@ async function findYearFolders(parentId, retryCount = 0) {
         }), 30000, "Listing Year Folders"));
         
         selector.innerHTML = '<option value="">Select DJ Chart...</option>';
+        
+        // v172: Inject My Favorites at the very top
+        const favOption = document.createElement('option');
+        favOption.value = SPECIAL_MY_FAVORITES;
+        favOption.innerText = "♥ My Favorites";
+        selector.appendChild(favOption);
+
         const yearFolders = res.result.files
             .filter(f => f.name.match(/^\d{4}$/) && parseInt(f.name) >= 2023)
             .sort((a, b) => b.name.localeCompare(a.name));
@@ -1604,9 +1764,7 @@ async function findYearFolders(parentId, retryCount = 0) {
                 renderCustomPlaylistList();
 
                 // プレイリストの読み込みを開始
-                const event = new Event('change');
-                event.isResuming = true; // カスタムフラグ
-                selector.dispatchEvent(event);
+                await selector.onchange({ target: selector, isResume: true });
             } else {
                 console.log("[Resume] Saved playlist not found in current list.");
                 resumeState = null;
@@ -1655,6 +1813,12 @@ function renderCustomPlaylistList() {
             updatePlaylistSearchMarquee(); // v55: マーキー更新
             customPlaylistList.style.display = 'none';
         };
+
+        // v172: Special styling for Favorites
+        if (opt.value === SPECIAL_MY_FAVORITES) {
+            item.classList.add('special-favorites');
+        }
+
         customPlaylistList.appendChild(item);
     });
 }
@@ -2016,7 +2180,70 @@ async function findTracksFolder(yearId, yearName, retryCount = 0) {
 
 // 3. リスト表示
 selector.onchange = async (e) => {
-    if (!e.target.value) return;
+    const playlistId = selector.value;
+    if (!playlistId) return;
+
+    // v95: レジューム情報の取得
+    let resumeTrackIdx = 0;
+    let resumeCurrentTime = 0;
+    let resumeAutoPlay = true; 
+    if (e.isResume && resumeState) {
+        isResumingProcess = true;
+        resumeTrackIdx = resumeState.trackIndex;
+        resumeAutoPlay = !resumeState.paused;
+        if (resumeAutoPlay) {
+            resumeCurrentTime = Math.max(0, resumeState.currentTime - 3);
+        } else {
+            resumeCurrentTime = resumeState.currentTime;
+        }
+    }
+
+    if (playlistId === SPECIAL_MY_FAVORITES) {
+        updateStatus("Loading My Favorites...");
+        
+        // v45: 検索ボックスの表示を選択した名前に更新
+        if (playlistSearch) {
+            const selectedOpt = selector.options[selector.selectedIndex];
+            if (selectedOpt) playlistSearch.value = selectedOpt.innerText;
+        }
+
+        currentPlaylist = favoritesPlaylistData.chart.map(track => {
+            const artist = track.artist || "Unknown Artist";
+            const title = track.title || "Unknown Title";
+            const yearName = "Favorites";
+            return {
+                title: title,
+                name: title,
+                artist: artist,
+                album: "My Favorites",
+                url: "", // 後で取得
+                mp3_file: track.mp3_file,
+                cover_art_url: track.cover_art_url || "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
+                version: track.version || "",
+                year: yearName
+            };
+        });
+        currentYearName = "Favorites";
+        renderList();
+        showPlayer("Favorites");
+        
+        if (currentPlaylist.length > 0) {
+            updateStatus("My Favorites loaded.");
+            // v172: レジューム対応
+            if (e.isResume) {
+                console.log(`[Resume] Favorites: Track ${resumeTrackIdx} at ${resumeCurrentTime}s`);
+                playWithAmplitude(resumeTrackIdx, resumeCurrentTime, resumeAutoPlay);
+                resumeState = null; // 完了したのでクリア
+            } else {
+                if (typeof Amplitude !== 'undefined') Amplitude.pause();
+                playWithAmplitude(0);
+            }
+        } else {
+            updateStatus("No favorites yet.");
+            isResumingProcess = false;
+        }
+        return;
+    }
 
     updateStatus("Loading DJ Chart...");
 
@@ -2033,24 +2260,11 @@ selector.onchange = async (e) => {
     const fileId = data.id;
     let played = false;
 
-    // v95: レジューム情報の取得
-    let startIdx = 0;
-    let startOffset = 0;
-    let shouldAutoPlay = true; // デフォルトは自動再生
-    if (e.isResuming && resumeState) {
-        isResumingProcess = true; // v167: レジューム開始
-        startIdx = resumeState.trackIndex;
-        shouldAutoPlay = !resumeState.paused; // 前回停止中なら自動再生しない
-        
-        // 前回再生中なら3秒戻し、停止中ならそのままの時間
-        if (shouldAutoPlay) {
-            startOffset = Math.max(0, resumeState.currentTime - 3);
-        } else {
-            startOffset = resumeState.currentTime;
-        }
-        
+    // v95: レジューム情報の取得 (共通処理として上部で計算済み)
+    if (e.isResume && resumeState) {
+        // resumeTrackIdx, resumeCurrentTime, resumeAutoPlay は上部で計算済み
         resumeState = null; // 一度使用したらクリア
-        console.log(`[Resume] Resuming (autoPlay=${shouldAutoPlay}) from track ${startIdx} at ${startOffset}s`);
+        console.log(`[Resume] Resuming (autoPlay=${resumeAutoPlay}) from track ${resumeTrackIdx} at ${resumeCurrentTime}s`);
     }
 
     // 1. キャッシュから即座に復元
@@ -2070,7 +2284,7 @@ selector.onchange = async (e) => {
         renderList();
         showPlayer(data.year);
         // v21: キャッシュがあれば即座に再生開始
-        playWithAmplitude(startIdx, startOffset, shouldAutoPlay);
+        playWithAmplitude(resumeTrackIdx, resumeCurrentTime, resumeAutoPlay);
         played = true;
     }
 
@@ -2123,7 +2337,7 @@ selector.onchange = async (e) => {
             showPlayer(data.year);
             // v21: まだ再生していなければ（キャッシュがなかった等）ここで開始
             if (!played) {
-                playWithAmplitude(startIdx, startOffset, shouldAutoPlay);
+                playWithAmplitude(resumeTrackIdx, resumeCurrentTime, resumeAutoPlay);
                 played = true;
             }
         } else if (!played) {
@@ -2165,6 +2379,25 @@ function showPlayer(year) {
 
 function renderList() {
     trackList.innerHTML = '';
+
+    // v172: プレイリストが空の場合のメッセージ表示
+    if (currentPlaylist.length === 0) {
+        const emptyMsg = document.createElement('li');
+        emptyMsg.style.color = '#888';
+        emptyMsg.style.textAlign = 'center';
+        emptyMsg.style.padding = '40px 20px';
+        emptyMsg.style.fontSize = '14px';
+        emptyMsg.style.lineHeight = '1.6';
+        
+        const isFavorites = (document.getElementById('playlist_selector').value === SPECIAL_MY_FAVORITES);
+        if (isFavorites) {
+            emptyMsg.innerHTML = 'お気に入りがまだありません。<br><span style="font-size: 1.2em; color: #55b560;">♡</span> をタップして曲を追加してください。';
+        } else {
+            emptyMsg.innerText = 'このプレイリストには曲がありません。';
+        }
+        trackList.appendChild(emptyMsg);
+        return;
+    }
     currentPlaylist.forEach((track, index) => {
         if (!track || !track.title) return; // JSON内に空要素等が含まれている場合はスキップする
 
@@ -2899,6 +3132,14 @@ function startPlayback(index, url, cover, gen, startTime = 0, shouldPlay = true)
 
     currentTrackIndex = index;
     const fullTitle = track.version ? `${track.title} (${track.version})` : track.title;
+
+    // v172: お気に入りアイコンとプログレスバーのリセット
+    FavoritesManager.updateHeartIcon();
+    document.querySelectorAll('.jukebox-song-played-progress').forEach(el => el.value = 0);
+    document.querySelectorAll('.jukebox-song-slider').forEach(el => {
+        el.value = 0;
+        el.blur(); // フォーカスを外して自動更新を再開させる
+    });
 
     // 1. 再生開始
     // v100: blob URL の場合は Amplitude.playNow() を介さず直接 audio 要素を操作する。
