@@ -5,6 +5,7 @@ import os
 import re
 import html
 import shutil
+import random
 from datetime import datetime
 
 def split_title_version(full_title):
@@ -197,7 +198,10 @@ def convert_xspf(xspf_path):
                     seen_normalized.add(norm_name)
                     new_tracks.append(track_entry)
 
-    # Rebuild: existing entries + unique new entries
+    # Randomize the order of new tracks before prepending
+    random.shuffle(new_tracks)
+
+    # Rebuild: unique new entries + existing entries
     data["chart"] = new_tracks + [e for e in data["chart"] if e and normalize_filename(e.get("mp3_file", "")) in existing_normalized]
 
     with open(output_filename, 'w', encoding='utf-8') as f:
