@@ -8,6 +8,13 @@ import shutil
 import random
 from datetime import datetime
 
+# Color constants for console output
+RED = "\033[91m"
+YELLOW = "\033[93m"
+BLUE = "\033[94m"
+RESET = "\033[0m"
+
+
 def split_title_version(full_title):
     """
     Splits a title like 'Title (Version)' into ('Title', 'Version').
@@ -44,18 +51,18 @@ def normalize_filename(path):
 def load_external_json(json_path):
     """Loads external chart JSON and returns it as a dict."""
     if not os.path.exists(json_path):
-        print(f"Warning: External JSON not found: {json_path}")
+        print(f"{RED}Warning: External JSON not found: {json_path}{RESET}")
         return None
     try:
         with open(json_path, 'r', encoding='utf-8') as f:
             return json.load(f)
     except Exception as e:
-        print(f"Error reading {json_path}: {e}")
+        print(f"{RED}Error reading {json_path}: {e}{RESET}")
         return None
 
 def convert_xspf(xspf_path):
     if not os.path.exists(xspf_path):
-        print(f"Error: File not found: {xspf_path}")
+        print(f"{RED}Error: File not found: {xspf_path}{RESET}")
         return
 
     # Namespace handling
@@ -65,7 +72,7 @@ def convert_xspf(xspf_path):
         tree = ET.parse(xspf_path)
         root = tree.getroot()
     except ET.ParseError as e:
-        print(f"Error parsing XML: {e}")
+        print(f"{RED}Error parsing XML: {e}{RESET}")
         return
 
     now = datetime.now()
@@ -117,6 +124,7 @@ def convert_xspf(xspf_path):
             full_title = html.unescape(full_title_el.text) if full_title_el is not None else ""
             artist = html.unescape(artist_el.text) if artist_el is not None else ""
 
+            track_entry = None
             if raw_location.startswith('#'):
                 # Case 1: External JSON Lookup
                 clean_location = raw_location[1:] # Remove #
@@ -141,7 +149,7 @@ def convert_xspf(xspf_path):
                             target_mp3 = entry.get("mp3_file", "")
                             if os.path.basename(target_mp3) == base_filename:
                                 if target_mp3 == "":
-                                    print(f"Skipping track (empty mp3_file): {base_filename}")
+                                    print(f"{YELLOW}Skipping track (empty mp3_file): {base_filename}{RESET}")
                                     found = True
                                     track_entry = None
                                     break
@@ -157,7 +165,7 @@ def convert_xspf(xspf_path):
                                 target_mp3 = entry.get("mp3_file", "")
                                 if normalize_filename(target_mp3) == normalized_base:
                                     if target_mp3 == "":
-                                        print(f"Skipping track (empty mp3_file, fuzzy match): {base_filename}")
+                                        print(f"{YELLOW}Skipping track (empty mp3_file, fuzzy match): {base_filename}{RESET}")
                                         found = True
                                         track_entry = None
                                         break
@@ -166,10 +174,10 @@ def convert_xspf(xspf_path):
                                     break
                     
                     if not found:
-                        print(f"Skipping track (not in {os.path.basename(external_json_path)}): {base_filename}")
+                        print(f"{YELLOW}Skipping track (not in {os.path.basename(external_json_path)}): {base_filename}{RESET}")
                         continue
                 else:
-                    print(f"Warning: Invalid location format: {raw_location}")
+                    print(f"{RED}Warning: Invalid location format: {raw_location}{RESET}")
             else:
                 # Case 2: Direct path validation
                 year_prefix = raw_location[:4]
@@ -178,7 +186,7 @@ def convert_xspf(xspf_path):
                 if os.path.exists(full_physical_path):
                     mp3_path = f"/music/{year_prefix}/{raw_location}"
                 else:
-                    print(f"Error: Physical file not found: {full_physical_path}")
+                    print(f"{RED}Error: Physical file not found: {full_physical_path}{RESET}")
                     mp3_path = raw_location # Fallback or keep as is
 
                 title, version = split_title_version(full_title)
@@ -192,7 +200,8 @@ def convert_xspf(xspf_path):
             if track_entry:
                 norm_name = normalize_filename(track_entry.get("mp3_file", ""))
                 if norm_name in seen_normalized:
-                    print(f"Dedup: removing duplicate '{os.path.basename(track_entry.get('mp3_file', ''))}'")
+#                    if norm_name in existing_normalized:
+#                        print(f"Dedup: removing duplicate '{os.path.basename(track_entry.get('mp3_file', ''))}'")
                     dup_count += 1
                 else:
                     seen_normalized.add(norm_name)
@@ -208,6 +217,9 @@ def convert_xspf(xspf_path):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
     print(f"Successfully wrote {output_filename}")
+    for t in new_tracks:
+        version_str = f" ({t['version']})" if t.get('version') else ""
+        print(f"{BLUE}{t['artist']} / {t['title']}{version_str}{RESET}")
     print(f"Total tracks: {len(data['chart'])} (added: {len(new_tracks)}, duplicates removed: {dup_count})")
 
 if __name__ == "__main__":
