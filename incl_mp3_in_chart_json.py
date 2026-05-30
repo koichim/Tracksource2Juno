@@ -82,6 +82,7 @@ for a_json in chart_json_files:
 charts = sorted(charts, key=lambda x: os.path.basename(x["json_file"]))
 
 def enum_mp3_file_candidates(the_year): # the_year must be int
+    global new_mp3_files
     # include tracks dirs
     mp3_tracks_dirs = []
     if os.path.isdir(new_mp3_tracks_dir): mp3_tracks_dirs.append(new_mp3_tracks_dir) # just purchased
@@ -98,8 +99,8 @@ def enum_mp3_file_candidates(the_year): # the_year must be int
 
     # search mp3 in albums also
     my_mp3_purchased_album_dirs = []
-    if re.search(os.path.join("Download","mp3/"),os.path.curdir):
-        # in Downlaod/mp3
+    if re.search(os.path.join("Download","mp3"),os.path.curdir):
+        # in Downlaod/mp3 (incl. Doenload/mp3_prev, Download/mp3xxx)
         my_mp3_purchased_album_dirs = os.listdir(".")
         my_mp3_purchased_album_dirs = list(map(lambda x: os.path.join(os.path.abspath("."), x), my_mp3_purchased_album_dirs))
     my_mp3_album_dirs_of_the_year = []
@@ -148,7 +149,7 @@ def enum_mp3_file_candidates(the_year): # the_year must be int
                     mp3_files_of_the_year.append(os.path.join(an_mp3_dir, a_file))
             if the_year == this_year and an_mp3_dir == new_mp3_tracks_dir:
                 new_mp3_files.append(a_file)
-    
+           
     return mp3_files_of_the_year
 
 def normalize_unicode(words: str) -> str:
@@ -236,7 +237,7 @@ for a_chart in charts:
     # the json filename must start with year, 20xx
     the_chart_year = int(a_chart["json_file"][:4])
     if (the_chart_year != prev_chart_year):
-        mp3_files = enum_mp3_file_candidates(the_chart_year)
+        mp3_files = enum_mp3_file_candidates(the_chart_year) 
     if re.match(a_chart['chart_artist'], a_chart['chart_title'], re.IGNORECASE):
         chart_name = f"{a_chart['chart_title']} ({a_chart['date']})"
     else: 
