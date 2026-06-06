@@ -236,7 +236,11 @@ for an_mp3_dir in mp3_dir:
         
         #Fixing the cover image
         need_fix_img = False
-        apic_id3tag = "APIC:"
+        for key in tags.keys():
+            if key.startswith("APIC"):
+                apic_id3tag = key
+                break
+        #apic_id3tag = "APIC"
         apic = tags.get(apic_id3tag)
         if apic is None:
             apic_id3tag = "APIC:Cover Image"
