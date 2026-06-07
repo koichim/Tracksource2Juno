@@ -179,7 +179,7 @@ for an_mp3_dir in mp3_dir:
             artist_title = re.sub(r"_dj_", "_DJ_", artist_title, flags=re.IGNORECASE)
             artist_title = re.sub(r"_", " ", artist_title)
             
-            tmp_tags = artist_title.split('-')
+            tmp_tags = artist_title.split(' - ')
             if an_mp3_dir == traxsource_dir:
                 if len(tmp_tags) != 2: # Joy Marquez, Havana Hustlers - Lady (Hear Me Tonight) (Original Drum Mix).mp3
                     logging.error(f"maybe bad parsing artist_title from traxsource filename: {os.path.basename(an_mp3_file)}")
@@ -208,7 +208,9 @@ for an_mp3_dir in mp3_dir:
             tmp_title = re.sub(r"(\(feat[^\)]+?) - (.+?\))", r"\1) (\2", tmp_title)
             tmp_title = re.sub(r"(\(.+?) - (feat[^\)]+?\))", r"(\2 \1)", tmp_title)
             tmp_title = re.sub(r"([\( ])feat ", r"\1feat. ", tmp_title)
+            tmp_title = re.sub(r" +", r" ", tmp_title)
             tmp_artist = re.sub(r"([\( ])feat ", r"\1feat. ", tmp_artist)
+            tmp_artist = re.sub(r" +", r" ", tmp_artist)
             
             # how to put the values in mutagen ID3 tags
             # https://stackoverflow.com/questions/71468239/function-to-write-id3-tag-with-python-3-mutagen
