@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Traxsource2Juno
-// @version      0.60
+// @version      0.61
 // @namespace    Traxsource2Juno
 // @match      https://www.traxsource.com/*
 // @match      https://www.junodownload.com/*
@@ -26,6 +26,7 @@
 
     // Your code here...
     var CHECK_INTERVAL = 500; // in ms
+    var TAP_BUTTON_ID = "Traxsource2Juno_tap_button";
     //var JUNO_ARTIST_SERCH_HEADER = "https://www.junodownload.com/search/?facet%5Bmirror_artist_facetm%5D%5B%5D=";
     //var JUNO_ARTIST_SERCH_TRAILER = "&solrorder=date_down&list_view=tracks";
     var JUNO_ARTIST_SERCH_HEADER = "https://www.beatport.com/ja/search/tracks?q=";
@@ -252,6 +253,68 @@
         return result;
     };
 
+    function add_tap_buttons() {
+        if ($('.intercom-lightweight-app').length){
+            console.log("delete intercom-lightweight-app");
+            $('.intercom-lightweight-app').css("display", "none");
+        }
+        if ($("#"+TAP_BUTTON_ID).length){
+            return;
+        }
+
+
+        var body_nodes = document.getElementsByTagName('body');
+        if (!body_nodes) {
+            console.log("failed to get body element");
+            return;
+        }
+        if (body_nodes.length != 1) {
+            console.log("body.length="+body_nodes.length);
+            return;
+        }
+        var body_node = body_nodes[0];
+
+        var tap_buttons = document.createElement('div');
+        if (!tap_buttons) {
+            console.log("failed to create tap_buttons");
+            return;
+        }
+        tap_buttons.id = TAP_BUTTON_ID;
+        tap_buttons.style.visibility = "visible";
+        tap_buttons.style.width = "35px";
+        tap_buttons.style.bottom = "47px";
+        tap_buttons.style.right = "15px";
+        tap_buttons.style.position = "fixed";
+        tap_buttons.style.zIndex = "999";
+        tap_buttons.style.fontSize = "25px";
+        tap_buttons.style.textAlign = "center";
+        tap_buttons.style.cursor = "pointer";
+        tap_buttons.style.opacity = "0.6";
+        var n_button = document.createElement('div');
+        if (!n_button) {
+            console.log("can not create n_button");
+            return;
+        }
+        n_button.innerHTML = "&#9654";
+        n_button.style.background = "#6666FF";
+        n_button.style.height = "35px";
+        n_button.style.display = "flex";
+        $(n_button).css("align-items","center");
+        $(n_button).css("justify-content", "center");
+        n_button.onclick = function(){
+            console.log("n.onclick. mimic next pressed");
+            if ($('.next.prenex').length < 1){
+                console.log("no next buttons...");
+            } else {
+                $('.next.prenex')[0].childNodes[0].click();
+            }
+        };
+
+        tap_buttons.appendChild(n_button);
+
+        body_node.appendChild(tap_buttons);
+
+    }
 
     function trxsrc_run() {
         if ($("h1")[0].textContent == "JUST ADDED") {
@@ -262,6 +325,7 @@
                     $(elm).addClass("TRAXSOURCE2JUNO");
                 }
             });
+            add_tap_buttons();
         }
         // set some style for results from google drive
         GM_addStyle(".GD-offline-init {background-image: url('" + gdrive_icon_url + "');" +
