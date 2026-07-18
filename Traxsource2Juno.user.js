@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Traxsource2Juno
-// @version      0.61
+// @version      0.62
 // @namespace    Traxsource2Juno
 // @match      https://www.traxsource.com/*
 // @match      https://www.junodownload.com/*
@@ -317,7 +317,7 @@
     }
 
     function trxsrc_run() {
-        if ($("h1")[0].textContent == "JUST ADDED") {
+        // if ($("h1")[0].textContent == "JUST ADDED") {
             $(".links.ellip").not(".TRAXSOURCE2JUNO").each(function (idx, elm) {
                 if (($(elm).text().match(/,/g) || []).length > 1 ||
                     $(elm).text().match(/Various Artists/)) {
@@ -326,7 +326,7 @@
                 }
             });
             add_tap_buttons();
-        }
+        // }
         // set some style for results from google drive
         GM_addStyle(".GD-offline-init {background-image: url('" + gdrive_icon_url + "');" +
             "background-size: contain;" +
