@@ -59,6 +59,50 @@ if len(mp3_dir) == 0:
     logging.error("need to specify directory including mp3 files.")
     sys.exit()
 
+# --- Preprocess traxsource directory for albums ---
+if os.path.isdir(traxsource_dir):
+    album_groups = {}  # {album_name: [file_paths]}
+    traxsource_files = os.listdir(traxsource_dir)
+    for a_file in traxsource_files:
+        if os.path.splitext(a_file)[1].lower() == ".mp3":
+            file_path = os.path.join(traxsource_dir, a_file)
+            try:
+                tags = ID3(file_path)
+                album_tag = tags.get("TALB")
+                if album_tag and album_tag.text:
+                    album_name = album_tag.text[0].strip()
+                    if album_name:
+                        if album_name not in album_groups:
+                            album_groups[album_name] = []
+                        album_groups[album_name].append(file_path)
+            except Exception as e:
+                logging.error(f"Error reading ID3 tags from {file_path}: {e}")
+                sys.exit(1)
+
+    for album_name, files in album_groups.items():
+        if len(files) >= 5:
+            if not tag_update:
+                print(f"album detected: {album_name}")
+            else:
+                # Sanitize album name for folder creation
+                sanitized_album = re.sub(r'[\\|/|:|?|"|<|>|\|]', "_", album_name)
+                sanitized_album = normalize_unicode(sanitized_album)
+                
+                # Setup paths
+                album_dir = os.path.join(".", sanitized_album)
+                os.makedirs(album_dir, exist_ok=True)
+                
+                for file_path in files:
+                    try:
+                        shutil.move(file_path, album_dir)
+                        print(f"Moved {os.path.basename(file_path)} to {album_dir}")
+                    except Exception as e:
+                        logging.error(f"Failed to move {file_path} to {album_dir}: {e}")
+                        sys.exit(1)
+                
+                # Add to mp3_dir for main loop processing
+                mp3_dir.append(album_dir)
+
 # my %supported_frames = (
 #     TDAT => 1, #1302
 #     #APIC => 1, #HASH(0x2b139d8)
@@ -238,12 +282,13 @@ for an_mp3_dir in mp3_dir:
         
         #Fixing the cover image
         need_fix_img = False
+        apic_id3tag = None
         for key in tags.keys():
             if key.startswith("APIC"):
                 apic_id3tag = key
                 break
         #apic_id3tag = "APIC"
-        apic = tags.get(apic_id3tag)
+        apic = tags.get(apic_id3tag) if apic_id3tag else None
         if apic is None:
             apic_id3tag = "APIC:Cover Image"
             apic = tags.get(apic_id3tag)
