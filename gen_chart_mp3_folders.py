@@ -9,7 +9,15 @@ import json
 import datetime
 from mutagen.id3 import ID3,TRCK,TALB
 
-logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
+class ColorFormatter(logging.Formatter):
+    def format(self, record):
+        if record.levelno == logging.ERROR and sys.stderr.isatty():
+            return f"\033[31m{super().format(record)}\033[0m"
+        return super().format(record)
+
+handler = logging.StreamHandler(sys.stderr)
+handler.setFormatter(ColorFormatter(logging.BASIC_FORMAT))
+logging.basicConfig(level=logging.WARNING, handlers=[handler])
 
 #This script is assumed to run in Downloads/mp3 or music/20xx/
 new_mp3_tracks_dir = os.path.join("tracks", "mp3")
