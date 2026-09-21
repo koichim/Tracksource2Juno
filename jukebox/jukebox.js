@@ -27,7 +27,7 @@ let isRepeatOn = false;
 let playGeneration = 0; // 世代管理：古い再生予約をキャンセルするため
 let isInitAppDone = false; // v86: initAppの二重実行ガード
 // 集中管理（manifest.json）から取得したバージョン。未取得時はグローバル変数 or フォールバックを参照
-const getAppVersion = () => (window.JUKEBOX_VERSION && window.JUKEBOX_VERSION !== 'loading...') ? window.JUKEBOX_VERSION : "v171";
+const getAppVersion = () => (window.JUKEBOX_VERSION && window.JUKEBOX_VERSION !== 'loading...') ? window.JUKEBOX_VERSION : "v174";
 const APP_VERSION = getAppVersion();
 let currentPlaylistDate = ""; // v23: 現在のリストの日付
 let currentIsIncomplete = false; // v25: 現在のリストが未完成か
@@ -2658,19 +2658,12 @@ async function prefetchNextTrack(currentIndex) {
             const tokenData = JSON.parse(localStorage.getItem('gdrive_token'));
             const url = `https://www.googleapis.com/drive/v3/files/${targetId}?alt=media`;
 
-            // v160: 先頭 1MB のみ取得してカバーアートを抽出
+            // v174: 先頭 1MB（動的ヘッダー拡張機能付き）を取得してカバーアートを抽出
             let blob;
             try {
-                const res = await fetch(url, {
-                    headers: { 
-                        'Authorization': 'Bearer ' + tokenData.access_token,
-                        'Range': 'bytes=0-1048575'
-                    },
-                    signal: signal
-                });
-                if (res.ok || res.status === 206) {
-                    blob = await res.blob();
-                }
+                blob = await fetchFullHeaderBlob(url, {
+                    'Authorization': 'Bearer ' + tokenData.access_token
+                }, signal);
             } catch (err) {
                 console.warn("[Prefetch] Partial fetch failed:", err);
             } finally {
@@ -2836,6 +2829,44 @@ function clearPrefetch() {
     if (currentTrackIndex !== -1) {
         prefetchNextTrack(currentTrackIndex);
     }
+}
+
+/**
+ * v174: ID3ヘッダーサイズを解析し、カバーアートが含まれるヘッダー全体を動的に取得するヘルパー
+ */
+async function fetchFullHeaderBlob(url, baseHeaders = {}, signal = null) {
+    const initHeaders = Object.assign({}, baseHeaders, { 'Range': 'bytes=0-1048575' });
+    const res = await fetch(url, { headers: initHeaders, signal });
+    if (!res.ok && res.status !== 206) {
+        throw new Error(`Fetch failed with status: ${res.status}`);
+    }
+    const blob1 = await res.blob();
+    if (blob1.size < 10) return blob1;
+
+    try {
+        const slice10 = await blob1.slice(0, 10).arrayBuffer();
+        const bytes = new Uint8Array(slice10);
+        // 'ID3' マジックバイトチェック (0x49, 0x44, 0x33)
+        if (bytes[0] === 0x49 && bytes[1] === 0x44 && bytes[2] === 0x33) {
+            const tagSize = ((bytes[6] & 0x7f) << 21) | ((bytes[7] & 0x7f) << 14) | ((bytes[8] & 0x7f) << 7) | (bytes[9] & 0x7f);
+            const totalHeaderSize = tagSize + 10;
+            const maxHeaderSize = 10 * 1024 * 1024; // 10MB 上限
+            const targetSize = Math.min(totalHeaderSize, maxHeaderSize);
+
+            if (targetSize > blob1.size && res.status === 206) {
+                console.log(`[CoverArt] ID3 header size (${targetSize} bytes) > initial blob (${blob1.size} bytes). Fetching remaining header (${targetSize - blob1.size} bytes)...`);
+                const extraHeaders = Object.assign({}, baseHeaders, { 'Range': `bytes=${blob1.size}-${targetSize - 1}` });
+                const resExtra = await fetch(url, { headers: extraHeaders, signal });
+                if (resExtra.ok || resExtra.status === 206) {
+                    const blob2 = await resExtra.blob();
+                    return new Blob([blob1, blob2]);
+                }
+            }
+        }
+    } catch (e) {
+        console.warn("[CoverArt] Smart header check failed, using initial blob:", e);
+    }
+    return blob1;
 }
 
 /**
@@ -3015,17 +3046,8 @@ async function playWithAmplitude(index, startTime = 0, shouldPlay = true) {
                     // v168: 直接 GDrive を叩かず proxy-stream を経由させることで SW キャッシュを効かせる
                     const url = `./proxy-stream?fileId=${targetId}&token=${encodeURIComponent(token)}`;
 
-                    // v160: 常に先頭 1MB のみ取得してカバーアート抽出に使用
-                    const res = await fetch(url, {
-                        headers: { 
-                            'Range': 'bytes=0-1048576' // v168: 1MB
-                        },
-                        signal: signal
-                    });
-                    if (!res.ok && res.status !== 206) {
-                        throw new Error(`Fetch failed with status: ${res.status}`);
-                    }
-                    return await res.blob();
+                    // v174: 動的ヘッダー取得機能によりカバーアート抽出用 Blob を取得
+                    return await fetchFullHeaderBlob(url, {}, signal);
                 });
             };
 
