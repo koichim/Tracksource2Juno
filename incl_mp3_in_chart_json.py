@@ -275,9 +275,9 @@ for a_chart in charts:
             #    the_mp3_file = the_mp3_file.replace(os.path.join("mnt","c","Users","koich","Downloads","mp3"), 
             #                                        os.path.join("mnt","h","music",str(this_year)))
             if re.match(new_mp3_tracks_dir, the_mp3_file):
-                the_mp3_file = os.path.join(str(this_year),the_mp3_file)
-            if re.match(os.path.join("/mnt", "h"), the_mp3_file):
-                the_mp3_file = the_mp3_file.replace(os.path.join("/mnt", "h"),"")
+                the_mp3_file = os.path.join("/music", str(this_year), the_mp3_file)
+            elif re.match(os.path.join("/mnt", "h"), the_mp3_file):
+                the_mp3_file = the_mp3_file.replace(os.path.join("/mnt", "h"), "")
             a_track["mp3_file"] = the_mp3_file
             if the_chart_year == this_year: 
                 referred_mp3_files.append(os.path.basename(the_mp3_file))
