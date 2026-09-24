@@ -12,98 +12,41 @@ const ASSETS_TO_CACHE = [
 ];
 
 /**
- * v175: レスポンスヘッダーをオーディオ再生用にクリーンアップ・正規化する
- * GDriveの alt=media レスポンスに含まれる Content-Disposition: attachment や
- * Content-Type: application/octet-stream が原因で <audio> 要素が 
- * NotSupportedError を起こすのを防止する
- */
-function sanitizeAudioHeaders(headers) {
-  const newHeaders = new Headers(headers);
-  // HTMLMediaElement での再生を妨害する attachment 設定を削除
-  newHeaders.delete('content-disposition');
-  newHeaders.delete('content-encoding');
-
-  // Content-Type が audio/ でない場合（application/octet-stream 等）、audio/mpeg に補正
-  const contentType = newHeaders.get('content-type');
-  if (!contentType || contentType.includes('application/octet-stream') || contentType.includes('binary/octet-stream') || !contentType.startsWith('audio/')) {
-    newHeaders.set('content-type', 'audio/mpeg');
-  }
-
-  newHeaders.set('accept-ranges', 'bytes');
-  return newHeaders;
-}
-
-/**
- * v175: 200 OK のレスポンスから Range リクエストに応じた 206 Partial Content を生成する
+ * v169: 200 OK のレスポンスから Range リクエストに応じた 206 Partial Content を生成する
  */
 async function getRangeResponse(request, response) {
   const rangeHeader = request.headers.get('Range');
-  const headers = sanitizeAudioHeaders(response.headers);
+  if (!rangeHeader) return response;
+
+  const bytes = rangeHeader.match(/^bytes=(\d+)-(\d+)?$/);
+  if (!bytes) return response;
 
   try {
     const blob = await response.blob();
+    const start = parseInt(bytes[1], 10);
+    const end = bytes[2] ? parseInt(bytes[2], 10) : blob.size - 1;
 
-    if (!rangeHeader) {
-      headers.set('content-length', blob.size.toString());
-      return new Response(blob, {
-        status: 200,
-        statusText: 'OK',
-        headers: headers
-      });
-    }
-
-    let start = 0;
-    let end = blob.size - 1;
-
-    const matchStandard = rangeHeader.match(/^bytes=(\d+)-(\d+)?$/);
-    const matchSuffix = rangeHeader.match(/^bytes=-(\d+)$/);
-
-    if (matchStandard) {
-      start = parseInt(matchStandard[1], 10);
-      if (matchStandard[2]) {
-        end = parseInt(matchStandard[2], 10);
-      }
-    } else if (matchSuffix) {
-      const suffixLength = parseInt(matchSuffix[1], 10);
-      start = Math.max(0, blob.size - suffixLength);
-      end = blob.size - 1;
-    } else {
-      headers.set('content-length', blob.size.toString());
-      return new Response(blob, {
-        status: 200,
-        statusText: 'OK',
-        headers: headers
-      });
-    }
-
-    if (start >= blob.size || start > end) {
+    if (start >= blob.size) {
       return new Response('', {
         status: 416,
-        statusText: 'Range Not Satisfiable',
-        headers: {
-          'content-range': `bytes */${blob.size}`,
-          'accept-ranges': 'bytes'
-        }
+        headers: { 'Content-Range': `bytes */${blob.size}` }
       });
     }
 
-    end = Math.min(end, blob.size - 1);
     const slicedBlob = blob.slice(start, end + 1);
-    headers.set('content-range', `bytes ${start}-${end}/${blob.size}`);
-    headers.set('content-length', slicedBlob.size.toString());
+    const newHeaders = new Headers(response.headers);
+    newHeaders.set('Content-Range', `bytes ${start}-${end}/${blob.size}`);
+    newHeaders.set('Content-Length', slicedBlob.size);
+    newHeaders.set('Accept-Ranges', 'bytes');
 
     return new Response(slicedBlob, {
       status: 206,
       statusText: 'Partial Content',
-      headers: headers
+      headers: newHeaders
     });
   } catch (err) {
     console.error('[SW] Range generation failed:', err);
-    return new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers: headers
-    });
+    return response;
   }
 }
 
@@ -202,13 +145,8 @@ self.addEventListener('fetch', event => {
 
         try {
           const response = await fetch(driveUrl, { headers: fetchHeaders });
-          if (!response.ok) return response;
-          const sanitizedHeaders = sanitizeAudioHeaders(response.headers);
-          return new Response(response.body, {
-            status: response.status,
-            statusText: response.statusText,
-            headers: sanitizedHeaders
-          });
+          // 注意: ここで cache.put しない（巨大なため、明示的なプリフェッチ時のみに限定）
+          return response;
         } catch (err) {
           console.error('[SW] Stream Proxy Fetch Error:', err);
           return new Response('Stream Proxy Error', { status: 500 });
@@ -258,10 +196,6 @@ self.addEventListener('message', event => {
         });
         
         if (response.ok) {
-          const contentType = response.headers.get('content-type') || '';
-          if (contentType.includes('text/html')) {
-            throw new Error('Downloaded HTML error page instead of audio file');
-          }
           const cache = await caches.open('jukebox-downloads');
           await cache.put(url, response);
           

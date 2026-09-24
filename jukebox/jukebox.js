@@ -168,6 +168,7 @@ function getFallbackLabel(filename, yearName) {
  * プレイリストの表示用ラベルを生成する（アイコン付与）
  */
 function formatPlaylistLabel(baseLabel, isNew, isUpdated, isIncomplete) {
+    // 既存のアイコン（先頭の🆕, 🆙や末尾の🚧）を徹底的に除去
     let label = baseLabel.replace(/^[🆕🆙\s]+/, "").replace(/[\s🚧]+$/, "");
     if (isNew) {
         label = "🆕 " + label;
@@ -184,7 +185,7 @@ function formatPlaylistLabel(baseLabel, isNew, isUpdated, isIncomplete) {
 // v19: IndexedDB によるキャッシュ管理
 const JukeboxDB = {
     dbName: 'jukebox_cache_db',
-    dbVersion: 6, // v180: パス階層検索用ストア (pathFileIds, folderIds) の追加に伴い 6 に上げる
+    dbVersion: 5, // v65: スキーマ更新を確実にするため 5 に上げる
     db: null,
     openPromise: null,
     log(...args) {
@@ -207,10 +208,6 @@ const JukeboxDB = {
         } else {
             console.error.apply(console, args);
         }
-    },
-    normalizePath(path) {
-        if (!path || typeof path !== 'string') return '';
-        return path.replace(/\\/g, '/').replace(/^\//, '').normalize('NFC').toLowerCase();
     },
     async open() {
         if (this.db) return this.db;
@@ -237,6 +234,7 @@ const JukeboxDB = {
                     const store = db.createObjectStore('fileIds', { keyPath: 'name' });
                     store.createIndex('updatedAt', 'updatedAt', { unique: false });
                 } else {
+                    // 既存ストアにインデックスを追加する場合 (v2 -> v3)
                     const transaction = e.target.transaction;
                     const store = transaction.objectStore('fileIds');
                     if (!store.indexNames.contains('updatedAt')) {
@@ -247,16 +245,6 @@ const JukeboxDB = {
                 if (!db.objectStoreNames.contains('logs')) {
                     const store = db.createObjectStore('logs', { keyPath: 'id', autoIncrement: true });
                     store.createIndex('timestamp', 'timestamp', { unique: false });
-                }
-
-                // v180: パス階層検索用の新ストア
-                if (!db.objectStoreNames.contains('pathFileIds')) {
-                    const store = db.createObjectStore('pathFileIds', { keyPath: 'path' });
-                    store.createIndex('updatedAt', 'updatedAt', { unique: false });
-                }
-                if (!db.objectStoreNames.contains('folderIds')) {
-                    const store = db.createObjectStore('folderIds', { keyPath: 'folderKey' });
-                    store.createIndex('updatedAt', 'updatedAt', { unique: false });
                 }
             };
 
@@ -269,13 +257,17 @@ const JukeboxDB = {
                 this.db = e.target.result;
                 // ストアとインデックスの最終チェック
                 const hasStore = this.db.objectStoreNames.contains('fileIds');
-                const hasPathStore = this.db.objectStoreNames.contains('pathFileIds');
-                const hasFolderStore = this.db.objectStoreNames.contains('folderIds');
                 const hasLogsStore = this.db.objectStoreNames.contains('logs');
+                let hasIndex = false;
+                try {
+                    hasIndex = hasStore && this.db.transaction(['fileIds'], 'readonly').objectStore('fileIds').indexNames.contains('updatedAt');
+                } catch (err) {
+                    this.warn("Check index error:", err);
+                }
 
-                if (!hasStore || !hasPathStore || !hasFolderStore || !hasLogsStore) {
+                if (!hasStore || !hasIndex || !hasLogsStore) {
                     this.warn("DB schema incomplete. Forcing upgrade...");
-                    const nextVer = Math.max(this.db.version + 1, 6);
+                    const nextVer = Math.max(this.db.version + 1, 4);
                     this.db.close();
                     this.db = null;
                     const req2 = indexedDB.open(this.dbName, nextVer);
@@ -286,18 +278,13 @@ const JukeboxDB = {
                             const s = db2.createObjectStore('fileIds', { keyPath: 'name' });
                             s.add({ name: "__schema_ver__", id: nextVer, updatedAt: Date.now() });
                             s.createIndex('updatedAt', 'updatedAt', { unique: false });
+                        } else {
+                            const s = ev.target.transaction.objectStore('fileIds');
+                            if (!s.indexNames.contains('updatedAt')) s.createIndex('updatedAt', 'updatedAt', { unique: false });
                         }
                         if (!db2.objectStoreNames.contains('logs')) {
                             const s = db2.createObjectStore('logs', { keyPath: 'id', autoIncrement: true });
                             s.createIndex('timestamp', 'timestamp', { unique: false });
-                        }
-                        if (!db2.objectStoreNames.contains('pathFileIds')) {
-                            const s = db2.createObjectStore('pathFileIds', { keyPath: 'path' });
-                            s.createIndex('updatedAt', 'updatedAt', { unique: false });
-                        }
-                        if (!db2.objectStoreNames.contains('folderIds')) {
-                            const s = db2.createObjectStore('folderIds', { keyPath: 'folderKey' });
-                            s.createIndex('updatedAt', 'updatedAt', { unique: false });
                         }
                     };
                     req2.onsuccess = (ev) => { this.db = ev.target.result; resolve(this.db); };
@@ -360,6 +347,7 @@ const JukeboxDB = {
     async setFileId(name, id) {
         try {
             const db = await this.open();
+            // 1. まず保存
             const putRequest = withTimeout(new Promise((resolve, reject) => {
                 const transaction = db.transaction(['fileIds'], 'readwrite');
                 const request = transaction.objectStore('fileIds').put({ name, id, updatedAt: Date.now() });
@@ -368,6 +356,7 @@ const JukeboxDB = {
             }), 3000, "DB SetFileId " + name);
             await putRequest;
 
+            // 2. 件数チェックと整理 (Pruning)
             const transaction = db.transaction(['fileIds'], 'readwrite');
             const store = transaction.objectStore('fileIds');
             const countRequest = store.count();
@@ -375,8 +364,9 @@ const JukeboxDB = {
             countRequest.onsuccess = () => {
                 if (countRequest.result > 2000) {
                     this.log("Pruning fileId cache (count: " + countRequest.result + ")");
+                    // 古い方から100件削除
                     const index = store.index('updatedAt');
-                    const cursorRequest = index.openCursor();
+                    const cursorRequest = index.openCursor(); // 昇順（古い順）
                     let deletedCount = 0;
                     cursorRequest.onsuccess = (e) => {
                         const cursor = e.target.result;
@@ -390,105 +380,6 @@ const JukeboxDB = {
             };
         } catch (e) { /* ignore */ }
     },
-
-    // v180: パス指定による File ID のキャッシュ取得
-    async getPathFileId(path) {
-        const normPath = this.normalizePath(path);
-        if (!normPath) return null;
-        try {
-            const db = await this.open();
-            return withTimeout(new Promise((resolve, reject) => {
-                const transaction = db.transaction(['pathFileIds'], 'readonly');
-                const request = transaction.objectStore('pathFileIds').get(normPath);
-                request.onsuccess = () => resolve(request.result ? request.result.id : null);
-                request.onerror = () => reject(new Error("GetPathFileId Error"));
-            }), 3000, "DB GetPathFileId " + normPath);
-        } catch (e) { return null; }
-    },
-
-    // v180: パス指定による File ID のキャッシュ保存 (2000件超で整理)
-    async setPathFileId(path, id) {
-        const normPath = this.normalizePath(path);
-        if (!normPath || !id) return;
-        try {
-            const db = await this.open();
-            const putRequest = withTimeout(new Promise((resolve, reject) => {
-                const transaction = db.transaction(['pathFileIds'], 'readwrite');
-                const request = transaction.objectStore('pathFileIds').put({ path: normPath, id, updatedAt: Date.now() });
-                request.onsuccess = () => resolve();
-                request.onerror = () => reject(new Error("SetPathFileId Error"));
-            }), 3000, "DB SetPathFileId " + normPath);
-            await putRequest;
-
-            const transaction = db.transaction(['pathFileIds'], 'readwrite');
-            const store = transaction.objectStore('pathFileIds');
-            const countRequest = store.count();
-
-            countRequest.onsuccess = () => {
-                if (countRequest.result > 2000) {
-                    this.log("Pruning pathFileId cache (count: " + countRequest.result + ")");
-                    const index = store.index('updatedAt');
-                    const cursorRequest = index.openCursor();
-                    let deletedCount = 0;
-                    cursorRequest.onsuccess = (e) => {
-                        const cursor = e.target.result;
-                        if (cursor && deletedCount < 100) {
-                            cursor.delete();
-                            deletedCount++;
-                            cursor.continue();
-                        }
-                    };
-                }
-            };
-        } catch (e) { /* ignore */ }
-    },
-
-    // v180: 親フォルダ ID (folderKey) の取得
-    async getFolderId(folderKey) {
-        const key = (folderKey || '').normalize('NFC').toLowerCase();
-        if (!key) return null;
-        try {
-            const db = await this.open();
-            return withTimeout(new Promise((resolve, reject) => {
-                const transaction = db.transaction(['folderIds'], 'readonly');
-                const request = transaction.objectStore('folderIds').get(key);
-                request.onsuccess = () => resolve(request.result ? request.result.id : null);
-                request.onerror = () => reject(new Error("GetFolderId Error"));
-            }), 3000, "DB GetFolderId " + key);
-        } catch (e) { return null; }
-    },
-
-    // v180: 親フォルダ ID (folderKey) の保存
-    async setFolderId(folderKey, id) {
-        const key = (folderKey || '').normalize('NFC').toLowerCase();
-        if (!key || !id) return;
-        try {
-            const db = await this.open();
-            const putRequest = withTimeout(new Promise((resolve, reject) => {
-                const transaction = db.transaction(['folderIds'], 'readwrite');
-                const request = transaction.objectStore('folderIds').put({ folderKey: key, id, updatedAt: Date.now() });
-                request.onsuccess = () => resolve();
-                request.onerror = () => reject(new Error("SetFolderId Error"));
-            }), 3000, "DB SetFolderId " + key);
-            await putRequest;
-        } catch (e) { /* ignore */ }
-    },
-
-    // v180: ドライブ側の変更等で腐った folderId キャッシュの削除
-    async removeFolderId(folderKey) {
-        const key = (folderKey || '').normalize('NFC').toLowerCase();
-        if (!key) return;
-        try {
-            const db = await this.open();
-            return new Promise((resolve) => {
-                const transaction = db.transaction(['folderIds'], 'readwrite');
-                const request = transaction.objectStore('folderIds').delete(key);
-                request.onsuccess = () => resolve();
-                request.onerror = () => resolve();
-            });
-        } catch (e) { /* ignore */ }
-    },
-
     async clearAll() {
         try {
             // v75: ログイン情報もクリアして再認証を容易にする
@@ -496,11 +387,9 @@ const JukeboxDB = {
 
             const db = await this.open();
             return new Promise((resolve) => {
-                const transaction = db.transaction(['playlists', 'fileIds', 'pathFileIds', 'folderIds', 'logs'], 'readwrite');
+                const transaction = db.transaction(['playlists', 'fileIds', 'logs'], 'readwrite');
                 transaction.objectStore('playlists').clear();
                 transaction.objectStore('fileIds').clear();
-                if (transaction.objectStoreNames.contains('pathFileIds')) transaction.objectStore('pathFileIds').clear();
-                if (transaction.objectStoreNames.contains('folderIds')) transaction.objectStore('folderIds').clear();
                 transaction.objectStore('logs').clear();
                 transaction.oncomplete = () => resolve();
                 transaction.onerror = () => resolve();
@@ -1281,175 +1170,6 @@ async function googleDriveSearchFetch(fileName, signal) {
         return (data.files && data.files.length > 0) ? data.files[0].id : null;
     });
 }
-
-// v180: 重複リクエスト防止（In-flight deduplication）および年度 ID キャッシュ
-const inFlightFolderSearches = new Map();
-const yearFoldersCache = new Map();
-
-/**
- * v180: mp3_file パス文字列をパースし、親フォルダ検索に必要な情報を抽出する
- */
-function parseMp3FilePath(mp3File) {
-    if (!mp3File || typeof mp3File !== 'string') return null;
-    const cleanPath = mp3File.replace(/\\/g, '/').replace(/^\//, '').normalize('NFC');
-    const parts = cleanPath.split('/').filter(p => p.length > 0);
-    if (parts.length < 2) return null;
-
-    const fileName = parts[parts.length - 1];
-
-    // 年度（4桁数字）の抽出
-    const yearMatch = cleanPath.match(/(?:^|\/)(\d{4})(?:\/|$)/);
-    const year = yearMatch ? yearMatch[1] : null;
-
-    // アルバム/フォルダ名の特定:
-    let folderName = null;
-    const mp3Index = parts.indexOf('mp3');
-    if (mp3Index > 0) {
-        folderName = parts[mp3Index - 1];
-    } else if (parts.length >= 2) {
-        folderName = parts[parts.length - 2];
-    }
-
-    if (!fileName || !year || !folderName) return null;
-
-    const folderKey = `${year}/${folderName}/mp3`.toLowerCase().normalize('NFC');
-    const normalizedPath = cleanPath.toLowerCase().normalize('NFC');
-
-    return { cleanPath, normalizedPath, year, folderName, fileName, folderKey };
-}
-
-/**
- * v180: 指定されたフォルダ情報から、最直下の 'mp3' フォルダ ID を解決（検索・キャッシュ）する
- */
-async function resolveMp3FolderId(parsedInfo, signal) {
-    const { year, folderName, folderKey } = parsedInfo;
-
-    // 1. IndexedDB キャッシュを確認
-    const cachedFolderId = await JukeboxDB.getFolderId(folderKey);
-    if (cachedFolderId) return cachedFolderId;
-
-    // 2. 実行中の同一 Promise があれば重複実行を回避
-    if (inFlightFolderSearches.has(folderKey)) {
-        return await inFlightFolderSearches.get(folderKey);
-    }
-
-    const searchPromise = (async () => {
-        try {
-            // A. 年度フォルダ ID の特定
-            let yearId = yearFoldersCache.get(year);
-            if (!yearId) {
-                const mbRes = await authorizedRequest(() => withTimeout(gapi.client.drive.files.list({
-                    q: "name = 'music_backup' and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
-                    fields: 'files(id)'
-                }), 30000, "Find Root music_backup"));
-
-                if (!mbRes.result.files || mbRes.result.files.length === 0) return null;
-                const rootId = mbRes.result.files[0].id;
-
-                const yRes = await authorizedRequest(() => withTimeout(gapi.client.drive.files.list({
-                    q: `'${rootId}' in parents and name = '${year}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
-                    fields: 'files(id)'
-                }), 30000, "Find Year Folder " + year));
-
-                if (!yRes.result.files || yRes.result.files.length === 0) return null;
-                yearId = yRes.result.files[0].id;
-                yearFoldersCache.set(year, yearId);
-            }
-
-            // B. アルバム / tracks フォルダを検索
-            const safeFolderName = folderName.replace(/'/g, "\\'");
-            const fRes = await authorizedRequest(() => withTimeout(gapi.client.drive.files.list({
-                q: `'${yearId}' in parents and name = '${safeFolderName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
-                fields: 'files(id)'
-            }), 30000, "Find Folder " + folderName));
-
-            if (!fRes.result.files || fRes.result.files.length === 0) return null;
-            const albumFolderId = fRes.result.files[0].id;
-
-            // C. 直下の 'mp3' フォルダを検索
-            const mp3Res = await authorizedRequest(() => withTimeout(gapi.client.drive.files.list({
-                q: `'${albumFolderId}' in parents and name = 'mp3' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
-                fields: 'files(id)'
-            }), 30000, "Find mp3 Subfolder in " + folderName));
-
-            if (!mp3Res.result.files || mp3Res.result.files.length === 0) {
-                // 直接 albumFolderId 直下に MP3 が入っている構成の場合のフォールバック
-                await JukeboxDB.setFolderId(folderKey, albumFolderId);
-                return albumFolderId;
-            }
-
-            const mp3FolderId = mp3Res.result.files[0].id;
-            await JukeboxDB.setFolderId(folderKey, mp3FolderId);
-            return mp3FolderId;
-        } finally {
-            inFlightFolderSearches.delete(folderKey);
-        }
-    })();
-
-    inFlightFolderSearches.set(folderKey, searchPromise);
-    return await searchPromise;
-}
-
-/**
- * v180: パス階層情報を用いた高精度 Google Drive MP3 検索
- */
-async function googleDriveSearchFetchByPath(track, signal) {
-    if (!track || !track.mp3_file) return null;
-
-    const parsed = parseMp3FilePath(track.mp3_file);
-    const fileName = (track.mp3_file.split('/').pop() || "").normalize('NFC');
-
-    // 1. 新パス形式の IndexedDB キャッシュを確認
-    if (parsed) {
-        const cachedPathId = await JukeboxDB.getPathFileId(parsed.normalizedPath);
-        if (cachedPathId) return cachedPathId;
-    }
-
-    // 2. パス解析が成功した場合、親フォルダ ID を解決してピンポイント検索
-    if (parsed) {
-        try {
-            const mp3FolderId = await resolveMp3FolderId(parsed, signal);
-            if (mp3FolderId) {
-                const safeFileName = parsed.fileName.replace(/'/g, "\\'");
-                const targetId = await authorizedRequest(async () => {
-                    const tokenData = JSON.parse(localStorage.getItem('gdrive_token'));
-                    const q = encodeURIComponent(`'${mp3FolderId}' in parents and name = '${safeFileName}' and trashed = false`);
-                    const fields = encodeURIComponent('files(id)');
-                    const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=${fields}&pageSize=1`;
-
-                    const res = await fetch(url, {
-                        headers: { 'Authorization': 'Bearer ' + tokenData.access_token },
-                        signal: signal
-                    });
-
-                    if (!res.ok) {
-                        if (res.status === 401) throw { status: 401 };
-                        throw new Error(`Search failed with status: ${res.status}`);
-                    }
-
-                    const data = await res.json();
-                    return (data.files && data.files.length > 0) ? data.files[0].id : null;
-                });
-
-                if (targetId) {
-                    await JukeboxDB.setPathFileId(parsed.normalizedPath, targetId);
-                    return targetId;
-                } else {
-                    // ドライブ側でフォルダが変更/削除された等の理由でヒットしなかった場合、フォルダキャッシュを無効化
-                    console.warn(`[Search] File not found in cached folder (${parsed.folderKey}). Removing folder cache...`);
-                    await JukeboxDB.removeFolderId(parsed.folderKey);
-                }
-            }
-        } catch (err) {
-            if (err.name === 'AbortError') throw err;
-            console.warn("[SearchByPath] Path-based search failed, falling back to name-only search:", err);
-        }
-    }
-
-    // 3. パス解析不可またはフォルダ検索不一致時のフォールバック（旧ファイル名検索）
-    return await googleDriveSearchFetch(fileName, signal);
-}
-
 
 async function checkTokenExpiry() {
     try {
@@ -2911,15 +2631,22 @@ async function prefetchNextTrack(currentIndex) {
         console.log(`Prefetching start: ${track.title} (${fileName})`);
         updateStatus(`⏳ Pre-fetching: ${track.title}`);
 
-        // v180: 高精度パス階層検索 ＆ キャッシュを使用
-        let targetId = null;
-        try {
-            targetId = await googleDriveSearchFetchByPath(track, signal);
-        } catch (err) {
-            if (err.name === 'AbortError') throw err;
-            console.warn("[Prefetch] Search failed:", err);
-            isPrefetching = false;
-            return;
+        // v50: まずキャッシュを確認
+        let targetId = await JukeboxDB.getFileId(fileName);
+
+        if (!targetId) {
+            // 2. キャッシュになければ Google Drive からファイルIDを特定 (AbortController対応)
+            try {
+                targetId = await googleDriveSearchFetch(fileName, signal);
+                if (targetId) {
+                    await JukeboxDB.setFileId(fileName, targetId);
+                }
+            } catch (err) {
+                if (err.name === 'AbortError') throw err;
+                console.warn("[Prefetch] Search failed:", err);
+                isPrefetching = false;
+                return;
+            }
         }
 
         if (targetId) {
@@ -3280,20 +3007,29 @@ async function playWithAmplitude(index, startTime = 0, shouldPlay = true) {
         // --- 3. 先読みがない場合、通常通りダウンロード ---
         const fileName = track.mp3_file.split('/').pop();
 
-        // v180: 高精度パス階層検索 ＆ キャッシュを使用
-        let targetId = null;
-        try {
-            targetId = await withTimeout(googleDriveSearchFetchByPath(track, signal), 20000, "Search Drive " + (track.title || "Track"));
-        } catch (err) {
-            if (err.name === 'AbortError') throw err;
-            console.error(`[Search] File query failed for '${track.title}':`, err);
-            updateStatus("Search Timeout. Retrying...");
-            await new Promise(r => setTimeout(r, 2000));
+        // v50: まずキャッシュを確認
+        let targetId = await JukeboxDB.getFileId(fileName);
+
+        if (!targetId) {
+            // v93: 15秒で一度諦める。ただし一度だけリトライ。認証付与。
             try {
-                targetId = await withTimeout(googleDriveSearchFetchByPath(track, signal), 25000, "Search Drive (Deep) " + (track.title || "Track"));
-            } catch (e2) {
-                if (e2.name === 'AbortError') throw e2;
-                console.error(`[Search] Retry also failed for '${track.title}':`, e2);
+                targetId = await withTimeout(googleDriveSearchFetch(fileName, signal), 15000, "Search Drive " + fileName);
+                if (targetId) {
+                    await JukeboxDB.setFileId(fileName, targetId);
+                }
+            } catch (err) {
+                if (err.name === 'AbortError') throw err;
+                console.error(`[Search] File query failed for '${fileName}':`, err);
+                updateStatus("Search Timeout. Retrying...");
+                // 1回だけリトライ
+                await new Promise(r => setTimeout(r, 2000));
+                try {
+                    targetId = await withTimeout(googleDriveSearchFetch(fileName, signal), 20000, "Search Drive (Deep) " + fileName);
+                    if (targetId) await JukeboxDB.setFileId(fileName, targetId);
+                } catch (e2) {
+                    if (e2.name === 'AbortError') throw e2;
+                    console.error(`[Search] Retry also failed for '${fileName}':`, e2);
+                }
             }
         }
 
