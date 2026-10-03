@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Traxsource2Juno
-// @version      0.62
+// @version      0.63
 // @namespace    Traxsource2Juno
 // @match      https://www.traxsource.com/*
 // @match      https://www.junodownload.com/*
@@ -167,7 +167,7 @@
     String.prototype.cleansing = function () {
         //let tmp_str = this.normalize("NFD"); // could not normalize Obskür...
         let tmp_str = _.deburr(this);  // use lodash.deburr, instead...
-        tmp_str = tmp_str.replace(/['’´]/g, "");
+        tmp_str = tmp_str.replace(/['’´’]/g, "");
         tmp_str = tmp_str.replace(/[^a-zA-Z0-9]/g, " ");
         tmp_str = tmp_str.clean();
         return tmp_str;
@@ -254,11 +254,11 @@
     };
 
     function add_tap_buttons() {
-        if ($('.intercom-lightweight-app').length){
+        if ($('.intercom-lightweight-app').length) {
             console.log("delete intercom-lightweight-app");
             $('.intercom-lightweight-app').css("display", "none");
         }
-        if ($("#"+TAP_BUTTON_ID).length){
+        if ($("#" + TAP_BUTTON_ID).length) {
             return;
         }
 
@@ -269,7 +269,7 @@
             return;
         }
         if (body_nodes.length != 1) {
-            console.log("body.length="+body_nodes.length);
+            console.log("body.length=" + body_nodes.length);
             return;
         }
         var body_node = body_nodes[0];
@@ -299,11 +299,11 @@
         n_button.style.background = "#6666FF";
         n_button.style.height = "35px";
         n_button.style.display = "flex";
-        $(n_button).css("align-items","center");
+        $(n_button).css("align-items", "center");
         $(n_button).css("justify-content", "center");
-        n_button.onclick = function(){
+        n_button.onclick = function () {
             console.log("n.onclick. mimic next pressed");
-            if ($('.next.prenex').length < 1){
+            if ($('.next.prenex').length < 1) {
                 console.log("no next buttons...");
             } else {
                 $('.next.prenex')[0].childNodes[0].click();
@@ -318,14 +318,14 @@
 
     function trxsrc_run() {
         // if ($("h1")[0].textContent == "JUST ADDED") {
-            $(".links.ellip").not(".TRAXSOURCE2JUNO").each(function (idx, elm) {
-                if (($(elm).text().match(/,/g) || []).length > 1 ||
-                    $(elm).text().match(/Various Artists/)) {
-                    $(elm).html("<div style='background-color:#ffbbbb'>" + $(elm).html() + "</div>");
-                    $(elm).addClass("TRAXSOURCE2JUNO");
-                }
-            });
-            add_tap_buttons();
+        $(".links.ellip").not(".TRAXSOURCE2JUNO").each(function (idx, elm) {
+            if (($(elm).text().match(/,/g) || []).length > 1 ||
+                $(elm).text().match(/Various Artists/)) {
+                $(elm).html("<div style='background-color:#ffbbbb'>" + $(elm).html() + "</div>");
+                $(elm).addClass("TRAXSOURCE2JUNO");
+            }
+        });
+        add_tap_buttons();
         // }
         // set some style for results from google drive
         GM_addStyle(".GD-offline-init {background-image: url('" + gdrive_icon_url + "');" +

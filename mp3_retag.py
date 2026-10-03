@@ -157,10 +157,18 @@ for an_mp3_dir in mp3_dir:
         logging.debug(f"ID3 version: {tags.version}")
         for key, value in tags.items():
             logging.debug(tags.get(key).pprint())
-                
-        cur_tracknumber = tags.get(id3tag_tracknumber).text[0]
-        cur_artist = tags.get(id3tag_artist).text[0]
-        cur_title = tags.get(id3tag_title).text[0]
+        
+        # Helper to safely get tag text; raises ValueError if tag is missing
+        def _get_tag_text(tag_key: str) -> str:
+            tag_obj = tags.get(tag_key)
+            if not tag_obj or not getattr(tag_obj, "text", None):
+                raise ValueError(f"Missing tag {tag_key} in file {an_mp3_file}")
+            return tag_obj.text[0]
+        
+        # Retrieve required tags; will raise ValueError if missing, stopping the script
+        cur_tracknumber = _get_tag_text(id3tag_tracknumber)
+        cur_artist = _get_tag_text(id3tag_artist)
+        cur_title = _get_tag_text(id3tag_title)
         
         tmp_tracknumber = "00"
         tmp_artist = ""
