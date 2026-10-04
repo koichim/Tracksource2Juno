@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Traxsource2Juno
-// @version      0.63
+// @version      0.64
 // @namespace    Traxsource2Juno
 // @match      https://www.traxsource.com/*
 // @match      https://www.junodownload.com/*
@@ -23,7 +23,41 @@
 
 (function () {
     'use strict';
-
+    const targetLabels = [
+        "^Defected",
+        "^Ministry of Sound",
+        "^Toy Tonics",
+        "^Quantize",
+        "^unquantize",
+        "^Glitterbox",
+        "^Milk & Sugar",
+        "^HouseU",
+        "^Armada",
+        "^Deepalma",
+        "^Spacedisco",
+        "^Nervous",
+        "^Fool's Paradise",
+        "^Big Love",
+        "^Soul Love",
+        "^Peppermint Jam",
+        "^Z Records",
+        "^The Disco Express",
+        "^Sultra",
+        "^Groove Culture",
+        "^Vega Records",
+        "^Southern Fried",
+        "^Reel People Music",
+        "^Papa Records",
+        "^Category 1 Music",
+        "^Hysteria",
+        "^Freeze Records",
+        "^Wh0 Plays",
+        "^DIRIDIM", //David Morales
+        "^Toolroom",
+        "^Soulfuric",
+        "^Snatch! Records",
+        "^Purple",
+    ];
     // Your code here...
     var CHECK_INTERVAL = 500; // in ms
     var TAP_BUTTON_ID = "Traxsource2Juno_tap_button";
@@ -322,6 +356,14 @@
             if (($(elm).text().match(/,/g) || []).length > 1 ||
                 $(elm).text().match(/Various Artists/)) {
                 $(elm).html("<div style='background-color:#ffbbbb'>" + $(elm).html() + "</div>");
+                $(elm).addClass("TRAXSOURCE2JUNO");
+            }
+        });
+        $("a.com-label").not(".TRAXSOURCE2JUNO").each(function (idx, elm) {
+            let labelText = $(elm).text().trim();
+            let matches = targetLabels.some(pattern => new RegExp(pattern, "i").test(labelText));
+            if (matches) {
+                $(elm).attr("style", "font-weight:bold; font-size:150%;color:red");
                 $(elm).addClass("TRAXSOURCE2JUNO");
             }
         });
