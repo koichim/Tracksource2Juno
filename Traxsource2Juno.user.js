@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Traxsource2Juno
-// @version      0.64
+// @version      0.65
 // @namespace    Traxsource2Juno
 // @match      https://www.traxsource.com/*
 // @match      https://www.junodownload.com/*
@@ -57,6 +57,15 @@
         "^Soulfuric",
         "^Snatch! Records",
         "^Purple",
+        "^theBasement Discos",
+        "^Let There Be House",
+        "^Metropolitan",
+        "^Motive Records",
+        "^S&S Records",
+        "^Cr2",
+        "^Atjazz",
+        "^In It Together",
+        "^Urbana",
     ];
     // Your code here...
     var CHECK_INTERVAL = 500; // in ms
