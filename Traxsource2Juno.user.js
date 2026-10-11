@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Traxsource2Juno
-// @version      0.65
+// @version      0.66
 // @namespace    Traxsource2Juno
 // @match      https://www.traxsource.com/*
 // @match      https://www.junodownload.com/*
@@ -66,6 +66,7 @@
         "^Atjazz",
         "^In It Together",
         "^Urbana",
+        "^Bomb Strikes",
     ];
     // Your code here...
     var CHECK_INTERVAL = 500; // in ms
