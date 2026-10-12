@@ -27,7 +27,7 @@ let isRepeatOn = false;
 let playGeneration = 0; // 世代管理：古い再生予約をキャンセルするため
 let isInitAppDone = false; // v86: initAppの二重実行ガード
 // 集中管理（manifest.json）から取得したバージョン。未取得時はグローバル変数 or フォールバックを参照
-const getAppVersion = () => (window.JUKEBOX_VERSION && window.JUKEBOX_VERSION !== 'loading...') ? window.JUKEBOX_VERSION : "v174";
+const getAppVersion = () => (window.JUKEBOX_VERSION && window.JUKEBOX_VERSION !== 'loading...') ? window.JUKEBOX_VERSION : "v175";
 const APP_VERSION = getAppVersion();
 let currentPlaylistDate = ""; // v23: 現在のリストの日付
 let currentIsIncomplete = false; // v25: 現在のリストが未完成か
@@ -670,6 +670,52 @@ const Logger = {
     }
 };
 
+/**
+ * v175: stalled（通信途絶）やフリーズ状態から安全にストリームを自己復帰させるヘルパー
+ */
+let isRecoveringPlayback = false;
+function recoverStalledPlayback(reason = "stalled") {
+    if (isRecoveringPlayback) return;
+    const audio = getRealAudio();
+    if (!audio || !audio.src || audio.src.length < 10) return;
+
+    // 既に正常にバッファがあり再生中なら何もしない
+    if (audio.readyState >= 3 && !audio.paused) return;
+
+    isRecoveringPlayback = true;
+    console.warn(`[AudioRecovery] Attempting stream recovery (reason: ${reason}, time: ${audio.currentTime}s, readyState: ${audio.readyState})`);
+
+    const savedTime = audio.currentTime;
+    const wasPlaying = !audio.paused || (playPauseBtn && playPauseBtn.getAttribute('data-state') === 'playing');
+
+    try {
+        // audio.load() を呼ぶことでブラウザの凍結したストリームパイプラインをリセット
+        audio.load();
+
+        const onCanPlay = () => {
+            audio.removeEventListener('canplay', onCanPlay);
+            if (savedTime > 0 && isFinite(savedTime)) {
+                audio.currentTime = Math.min(savedTime, (audio.duration || savedTime) - 0.1);
+            }
+            if (wasPlaying) {
+                audio.play().catch(e => console.warn("[AudioRecovery] play() after recovery failed:", e));
+            }
+            setTimeout(() => { isRecoveringPlayback = false; }, 1000);
+        };
+
+        audio.addEventListener('canplay', onCanPlay);
+
+        // 万が一 canplay が来ない場合の安全タイマー
+        setTimeout(() => {
+            audio.removeEventListener('canplay', onCanPlay);
+            isRecoveringPlayback = false;
+        }, 5000);
+    } catch (e) {
+        console.error("[AudioRecovery] Recovery execution error:", e);
+        isRecoveringPlayback = false;
+    }
+}
+
 // v18: 物理的に鳴っているオーディオ要素を確実に特定するヘルパー
 const getRealAudio = () => {
     let audio = document.getElementById('jukebox-audio');
@@ -876,7 +922,22 @@ const syncUI = () => {
 
 // スクリプト読み込み直後から開始
 setInterval(syncUI, 200);
-document.addEventListener('visibilitychange', syncUI);
+document.addEventListener('visibilitychange', () => {
+    syncUI();
+    // v175: 画面が復帰（visible）した際、ストリームが停止/フリーズしていないか点検
+    if (document.visibilityState === 'visible') {
+        const audio = getRealAudio();
+        const playBtn = document.getElementById('play-pause');
+        const shouldBePlaying = playBtn && playBtn.getAttribute('data-state') === 'playing';
+        if (audio && audio.src && audio.src.length > 10) {
+            // 再生中であるべきなのに paused になっている、または readyState が低いまま固まっている場合
+            if (shouldBePlaying && (audio.paused || audio.readyState < 2)) {
+                console.warn("[Visibility] Playback appears stalled/frozen upon returning to visible. Nudging/recovering...");
+                recoverStalledPlayback("visibility_resume");
+            }
+        }
+    }
+});
 window.addEventListener('focus', syncUI);
 
 /**
@@ -1224,6 +1285,12 @@ if (playPauseBtn) {
         const audio = getRealAudio();
         if (audio) {
             if (audio.paused) {
+                // v175: 再生再開時にストリームが切断/途絶している場合は復旧を試みる
+                if (audio.src && audio.src.length > 10 && (audio.readyState === 0 || audio.networkState === 3)) {
+                    console.warn("[playPauseBtn] Audio source exists but unready/stalled. Triggering recovery...");
+                    recoverStalledPlayback("play_click");
+                    return;
+                }
                 Amplitude.play();
             } else {
                 Amplitude.pause();
@@ -2779,10 +2846,10 @@ function playNextTrack() {
     // すでに先読み済みのインデックスがあればそれを優先する（シャッフル時も含む）
     if (nextTrackIndex !== -1) {
         console.log(`Using prefetched index: ${nextTrackIndex}`);
-        // v100: 先読み済み blob URL を即座に audio.src へセットし再生を開始する。
-        //       startPlayback の UI 更新処理と並行して再生パイプラインを起動することで
-        //       曲間の無音時間（体感で数秒）を最小化する。
-        if (nextBlobUrl && nextBlobUrl.startsWith('blob:')) {
+        // v100/175: 先読み済み URL (blob: または proxy-stream) を即座に audio.src へセットし再生を開始する。
+        //           startPlayback の UI 更新処理と並行して再生パイプラインを起動することで
+        //           曲間の無音時間（体感で数秒）を最小化する。
+        if (nextBlobUrl && (nextBlobUrl.startsWith('blob:') || nextBlobUrl.includes('/proxy-stream'))) {
             const earlyAudio = (Amplitude.getAudio && Amplitude.getAudio()) || document.getElementById('jukebox-audio');
             if (earlyAudio) {
                 earlyAudio.src = nextBlobUrl;
@@ -3313,6 +3380,14 @@ function startPlayback(index, url, cover, gen, startTime = 0, shouldPlay = true)
 
         audio.removeEventListener('timeupdate', updatePositionState);
         audio.addEventListener('timeupdate', updatePositionState);
+
+        // v175: stalled（通信途絶）発生時の自動リカバリハンドラ
+        audio.onstalled = () => {
+            console.warn(`[Gen ${gen}] Native Audio Stalled fired.`);
+            if (playGeneration === gen && !audio.paused && !isLoadingTrack) {
+                recoverStalledPlayback("native_stalled");
+            }
+        };
 
         // v95/167/168: startTime が指定されている場合はシーク
         if (startTime > 0) {
