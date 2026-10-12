@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Traxsource2Juno
-// @version      0.66
+// @version      0.67
 // @namespace    Traxsource2Juno
 // @match      https://www.traxsource.com/*
 // @match      https://www.junodownload.com/*
@@ -23,6 +23,7 @@
 
 (function () {
     'use strict';
+    // 重要レーベル
     const targetLabels = [
         "^Defected",
         "^Ministry of Sound",
@@ -68,6 +69,12 @@
         "^Urbana",
         "^Bomb Strikes",
     ];
+
+    // 同義語・別名等の定義(英数字の小文字で)
+    const synonym_map = [
+        { pattern: /\bdave love lee\b/gi, replacement: "dave lee" },
+    ];
+
     // Your code here...
     var CHECK_INTERVAL = 500; // in ms
     var TAP_BUTTON_ID = "Traxsource2Juno_tap_button";
@@ -211,9 +218,26 @@
     String.prototype.cleansing = function () {
         //let tmp_str = this.normalize("NFD"); // could not normalize Obskür...
         let tmp_str = _.deburr(this);  // use lodash.deburr, instead...
-        tmp_str = tmp_str.replace(/['’´’]/g, "");
+
+        // str.count(" - ") == 2 に相当（" - " の出現回数をカウント）
+        if ((tmp_str.split(" - ").length - 1) === 2) { // may include track number at the head of str
+            tmp_str = tmp_str.replace(/^\d+ - /, ""); // remove it if exists
+            tmp_str = tmp_str.replace(/^\d+-\d+ - /, ""); // remove it if exists
+        }
+        tmp_str = tmp_str.replace(/ø/g, "o"); // can not normalize_unicode
+        tmp_str = tmp_str.replace(/æ/g, "ae"); // can not normalize_unicode
+        tmp_str = tmp_str.replace(/['’´]s /g, " ");
+        tmp_str = tmp_str.replace(/['’´]/g, ""); // I'm -> im, Mousse T's -> Mousse T
+        tmp_str = tmp_str.replace(/12inch /g, "12 ");
+        tmp_str = tmp_str.replace(/\b([0-9a-zA-Z])[^0-9a-zA-Z]([0-9a-zA-Z])\b/g, "$1$2");
         tmp_str = tmp_str.replace(/[^a-zA-Z0-9]/g, " ");
         tmp_str = tmp_str.clean();
+        // synonym_map が { pattern: replacement } のオブジェクト（または Map）の場合
+        for (const { pattern, replacement } of synonym_map) {
+            tmp_str = tmp_str.replace(pattern, replacement);
+        }
+        tmp_str = tmp_str.toLowerCase();
+
         return tmp_str;
     }
     function artist_title_cleansing_array(str, rm_dup) {

@@ -10,6 +10,11 @@ import unicodedata
 import paramiko
 import textfile
 
+# 同義語・別名等の定義
+synonym_map = {
+    r"\bdave love lee\b": "dave lee",
+}
+
 class pycolor:
     BLACK = '\033[30m\033[1m'
     RED = '\033[31m\033[1m'
@@ -169,10 +174,14 @@ def artist_title_cleansing(str, rm_dup=True):
         str = re.sub(r"^\d+-\d+ - ", "", str) # remove it if exists
     str = re.sub(r"ø", "o", str) # can not normalize_unicode
     str = re.sub(r"æ", "ae", str) # can not normalize_unicode
-    if rm_dup: str = re.sub(r"['’´]s ", " ", str)
+    str = re.sub(r"['’´]s ", " ", str)
     str = re.sub(r"['’´]", "", str) #I'm -> im, Mousse T's -> Mousse Ts
     str = re.sub(r"12inch ", "12 ", str)
+    str = re.sub(r"\b([0-9a-zA-Z])[^0-9a-zA-Z]([0-9a-zA-Z])\b", r"$1$2", str) #M+M->MM, S&S -> SS
     str = re.sub(r"[^a-zA-Z0-9]", " ", str)
+    str = re.sub(r"\s+", " ", str) # remove multiple spaces
+    for pattern, replacement in synonym_map.items():
+        str = re.sub(pattern, replacement, str, flags=re.IGNORECASE)
     str = str.lower()
     strs = str.split()
     if rm_dup: strs = list(set(strs)) # remove duplication
@@ -255,7 +264,7 @@ for a_chart in charts:
         #look4mp3_result_list.append(look_for_mp3(a_track['artist'], a_track['title']))
         look4mp3_result_list.append(look_for_mp3(a_track['artist'], a_track['title'], version=a_track['version'], rm_dup=False))
         look4mp3_result_list.append(look_for_mp3(a_track['artist'], a_track['title'], version=a_track['version']))
-        best_look4mp3_result = max(look4mp3_result_list, key=lambda x:x.hit_ratio*x.score)
+        best_look4mp3_result = max(look4mp3_result_list, key=lambda x: (x.hit_ratio * x.score, x.hit_ratio))
         the_mp3_file = best_look4mp3_result.mp3_file
         score = best_look4mp3_result.score
         hit_ratio = best_look4mp3_result.hit_ratio
