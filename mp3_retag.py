@@ -158,14 +158,14 @@ for an_mp3_dir in mp3_dir:
         for key, value in tags.items():
             logging.debug(tags.get(key).pprint())
         
-        # Helper to safely get tag text; raises ValueError if tag is missing
+        # Helper to safely get tag text; returns empty string if tag is missing
         def _get_tag_text(tag_key: str) -> str:
             tag_obj = tags.get(tag_key)
-            if not tag_obj or not getattr(tag_obj, "text", None):
-                raise ValueError(f"Missing tag {tag_key} in file {an_mp3_file}")
-            return tag_obj.text[0]
+            if not tag_obj or not getattr(tag_obj, "text", None) or len(tag_obj.text) == 0:
+                return ""
+            return str(tag_obj.text[0])
         
-        # Retrieve required tags; will raise ValueError if missing, stopping the script
+        # Retrieve required tags (empty string if missing)
         cur_tracknumber = _get_tag_text(id3tag_tracknumber)
         cur_artist = _get_tag_text(id3tag_artist)
         cur_title = _get_tag_text(id3tag_title)
@@ -243,19 +243,28 @@ for an_mp3_dir in mp3_dir:
                 a_tag = re.sub(r"^\s+", "", a_tag)
                 a_tag = re.sub(r"\s+$", "", a_tag)
                 if an_mp3_dir == traxsource_dir:
-                    if i==0 and not tmp_artist:
-                        tmp_artist = a_tag
-                    elif not tmp_title:
-                        tmp_title = a_tag
+                    if i == 0:
+                        if not tmp_artist:
+                            tmp_artist = a_tag
+                    else:
+                        if not tmp_title:
+                            tmp_title = a_tag
+                        else:
+                            tmp_title += f" - {a_tag}"
                 else:
-                    if i==0 and not tmp_tracknumber:
-                        tmp_tracknumber = a_tag
-                    elif i==1 and not tmp_artist:
-                        tmp_artist = a_tag
+                    if i == 0:
+                        if not cur_tracknumber:
+                            tmp_tracknumber = a_tag
+                    elif i == 1:
+                        if not tmp_artist:
+                            tmp_artist = a_tag
                     elif re.search(r"^320kb s MP3$", a_tag):
                         break
-                    elif not tmp_title:
-                        tmp_title = a_tag
+                    else:
+                        if not tmp_title:
+                            tmp_title = a_tag
+                        else:
+                            tmp_title += f" - {a_tag}"
                 
             tmp_title = re.sub(r"(\(feat[^\)]+?) - (.+?\))", r"\1) (\2", tmp_title)
             tmp_title = re.sub(r"(\(.+?) - (feat[^\)]+?\))", r"(\2 \1)", tmp_title)
@@ -312,18 +321,22 @@ for an_mp3_dir in mp3_dir:
             else:
                 logging.debug(f"no need ti fix coer image. current size={cover_img_in_mp3.size}")
         
-        if not re.search(r"^[\x20-\x7E\s]+$", tags.get(id3tag_artist).text[0]) or \
-            not re.search(r"^[\x20-\x7E\s]+$", tags.get(id3tag_title).text[0]) or \
-            re.search(r"\?", tags.get(id3tag_artist).text[0]) or \
-            re.search(r"\?", tags.get(id3tag_title).text[0]) or \
+        final_artist = _get_tag_text(id3tag_artist)
+        final_title = _get_tag_text(id3tag_title)
+        final_tracknumber = _get_tag_text(id3tag_tracknumber)
+
+        if not re.search(r"^[\x20-\x7E\s]+$", final_artist) or \
+            not re.search(r"^[\x20-\x7E\s]+$", final_title) or \
+            re.search(r"\?", final_artist) or \
+            re.search(r"\?", final_title) or \
             not re.search(r"^[\x20-\x7E\s]+$", os.path.basename(an_mp3_file)):
-                warning_strings.append(f"{an_mp3_file}: \"{tags.get(id3tag_title).text[0]}\" / {tags.get(id3tag_artist).text[0]}")
+                warning_strings.append(f"{an_mp3_file}: \"{final_title}\" / {final_artist}")
         
         #move to mp3 dir
         if tag_update: #                 tags.save()
             
-            artist_in_filename = re.sub(r'[\\|/|:|?|"|<|>|\|]', "_", tags.get(id3tag_artist).text[0])
-            title_in_filename = re.sub(r'[\\|/|:|?|"|<|>|\|]', "_", tags.get(id3tag_title).text[0])
+            artist_in_filename = re.sub(r'[\\|/|:|?|"|<|>|\|]', "_", final_artist)
+            title_in_filename = re.sub(r'[\\|/|:|?|"|<|>|\|]', "_", final_title)
             artist_in_filename = normalize_unicode(artist_in_filename)
             title_in_filename = normalize_unicode(title_in_filename)
             if re.search(traxsource_dir+r"$", an_mp3_dir) or len(mp3_files) < 3:  # assuming tracks
@@ -334,7 +347,7 @@ for an_mp3_dir in mp3_dir:
             else: # assuming album
                 new_mp3_dir = os.path.join(an_mp3_dir, "mp3")
                 new_img_dir = an_mp3_dir
-                new_mp3_filename = f"{tags.get(id3tag_tracknumber).text[0]:0>2} - {artist_in_filename} - {title_in_filename}"
+                new_mp3_filename = f"{final_tracknumber:0>2} - {artist_in_filename} - {title_in_filename}"
                 new_img_filename = f"cover"
             
             new_mp3_filename = f"{new_mp3_filename[:200]}.mp3"
