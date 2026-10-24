@@ -177,7 +177,7 @@ def artist_title_cleansing(str, rm_dup=True):
     str = re.sub(r"['’´]s ", " ", str)
     str = re.sub(r"['’´]", "", str) #I'm -> im, Mousse T's -> Mousse Ts
     str = re.sub(r"12inch ", "12 ", str)
-    str = re.sub(r"\b([0-9a-zA-Z])[^0-9a-zA-Z]([0-9a-zA-Z])\b", r"$1$2", str) #M+M->MM, S&S -> SS
+    str = re.sub(r"\b([0-9a-zA-Z])[^0-9a-zA-Z\s]([0-9a-zA-Z])\b", r"\1\2", str) #M+M->MM, S&S -> SS
     str = re.sub(r"[^a-zA-Z0-9]", " ", str)
     str = re.sub(r"\s+", " ", str) # remove multiple spaces
     for pattern, replacement in synonym_map.items():
