@@ -131,6 +131,7 @@ for an_mp3_dir in mp3_dir:
         continue
     print(f"DIR: {an_mp3_dir} ")
     print("=======================")
+    is_traxsource = os.path.basename(an_mp3_dir.rstrip("/\\")) == traxsource_dir
 
     #collecting the files
     mp3_files = []
@@ -218,53 +219,55 @@ for an_mp3_dir in mp3_dir:
             
         
         
-        #need_fix = True #debug
-        # extract the data from file name
+        # extract the data from file name if any tag is missing
         if need_fix:
-            artist_title = os.path.basename(an_mp3_file)
-            artist_title = re.sub(r"\.mp3$", "", artist_title)
-            artist_title = re.sub(r"___", "_&_", artist_title)
-            artist_title = re.sub(r"(\(feat[^\)]+?)_-_(.+?\))", r"\1) (\2", artist_title)
-            artist_title = re.sub(r"(\(.+?)_-_(feat[^\)]+?\))", r"(\2 \1)", artist_title)
-            artist_title = re.sub(r"([_\(])feat_", r"\1feat._", artist_title)
-            artist_title = re.sub(r"_presents_", r"_pres._", artist_title, flags=re.IGNORECASE)
-            artist_title = re.sub(r"_dj_", "_DJ_", artist_title, flags=re.IGNORECASE)
-            artist_title = re.sub(r"_", " ", artist_title)
-            
-            tmp_tags = artist_title.split(' - ')
-            if an_mp3_dir == traxsource_dir:
-                if len(tmp_tags) != 2: # Joy Marquez, Havana Hustlers - Lady (Hear Me Tonight) (Original Drum Mix).mp3
-                    logging.error(f"maybe bad parsing artist_title from traxsource filename: {os.path.basename(an_mp3_file)}")
-            else:
-                if len(tmp_tags) != 4: # 03-Miguel_Migs_feat_Martin_Luther_-_Back_Tonight_(Lovebirds_Disco_Sketch_extended_mix)-320kb_s_MP3.mp3
-                    logging.error(f"maybe bad parsing artist_title from juno filename: {os.path.basename(an_mp3_file)}")
-                    
-            for i, a_tag in enumerate(tmp_tags):
-                a_tag = re.sub(r"^\s+", "", a_tag)
-                a_tag = re.sub(r"\s+$", "", a_tag)
-                if an_mp3_dir == traxsource_dir:
-                    if i == 0:
-                        if not tmp_artist:
-                            tmp_artist = a_tag
-                    else:
-                        if not tmp_title:
-                            tmp_title = a_tag
-                        else:
-                            tmp_title += f" - {a_tag}"
+            if not cur_tracknumber or not cur_artist or not cur_title:
+                artist_title = os.path.basename(an_mp3_file)
+                artist_title = re.sub(r"\.mp3$", "", artist_title)
+                artist_title = re.sub(r"___", "_&_", artist_title)
+                artist_title = re.sub(r"(\(feat[^\)]+?)_-_(.+?\))", r"\1) (\2", artist_title)
+                artist_title = re.sub(r"(\(.+?)_-_(feat[^\)]+?\))", r"(\2 \1)", artist_title)
+                artist_title = re.sub(r"([_\(])feat_", r"\1feat._", artist_title)
+                artist_title = re.sub(r"_presents_", r"_pres._", artist_title, flags=re.IGNORECASE)
+                artist_title = re.sub(r"_dj_", "_DJ_", artist_title, flags=re.IGNORECASE)
+                artist_title = re.sub(r"_", " ", artist_title)
+                
+                tmp_tags = artist_title.split(' - ')
+                if is_traxsource:
+                    if len(tmp_tags) != 2: # Joy Marquez, Havana Hustlers - Lady (Hear Me Tonight) (Original Drum Mix).mp3
+                        logging.error(f"maybe bad parsing artist_title from traxsource filename: {os.path.basename(an_mp3_file)}")
                 else:
-                    if i == 0:
-                        if not cur_tracknumber:
-                            tmp_tracknumber = a_tag
-                    elif i == 1:
-                        if not tmp_artist:
-                            tmp_artist = a_tag
-                    elif re.search(r"^320kb s MP3$", a_tag):
-                        break
-                    else:
-                        if not tmp_title:
-                            tmp_title = a_tag
+                    if len(tmp_tags) != 4: # 03-Miguel_Migs_feat_Martin_Luther_-_Back_Tonight_(Lovebirds_Disco_Sketch_extended_mix)-320kb_s_MP3.mp3
+                        logging.error(f"maybe bad parsing artist_title from juno filename: {os.path.basename(an_mp3_file)}")
+                        
+                for i, a_tag in enumerate(tmp_tags):
+                    a_tag = re.sub(r"^\s+", "", a_tag)
+                    a_tag = re.sub(r"\s+$", "", a_tag)
+                    if is_traxsource:
+                        if i == 0:
+                            if not cur_artist:
+                                tmp_artist = a_tag
                         else:
-                            tmp_title += f" - {a_tag}"
+                            if not cur_title:
+                                if not tmp_title:
+                                    tmp_title = a_tag
+                                else:
+                                    tmp_title += f" - {a_tag}"
+                    else:
+                        if i == 0:
+                            if not cur_tracknumber:
+                                tmp_tracknumber = a_tag
+                        elif i == 1:
+                            if not cur_artist:
+                                tmp_artist = a_tag
+                        elif re.search(r"^320kb s MP3$", a_tag):
+                            break
+                        else:
+                            if not cur_title:
+                                if not tmp_title:
+                                    tmp_title = a_tag
+                                else:
+                                    tmp_title += f" - {a_tag}"
                 
             tmp_title = re.sub(r"(\(feat[^\)]+?) - (.+?\))", r"\1) (\2", tmp_title)
             tmp_title = re.sub(r"(\(.+?) - (feat[^\)]+?\))", r"(\2 \1)", tmp_title)
@@ -339,7 +342,7 @@ for an_mp3_dir in mp3_dir:
             title_in_filename = re.sub(r'[\\|/|:|?|"|<|>|\|]', "_", final_title)
             artist_in_filename = normalize_unicode(artist_in_filename)
             title_in_filename = normalize_unicode(title_in_filename)
-            if re.search(traxsource_dir+r"$", an_mp3_dir) or len(mp3_files) < 3:  # assuming tracks
+            if is_traxsource or len(mp3_files) < 3:  # assuming tracks
                 new_mp3_dir = os.path.join(tracks_dir, "mp3")
                 new_img_dir = os.path.join(tracks_dir, "cover")
                 new_mp3_filename = f"{artist_in_filename} - {title_in_filename}"
@@ -393,14 +396,14 @@ for an_mp3_dir in mp3_dir:
     
     #remove the dir if empty, assuming track from juno
     if tag_update:
-        if not os.path.basename(an_mp3_dir) == "traxsource":
+        if not is_traxsource:
             try:
                 os.removedirs(an_mp3_dir)
             except OSError as e:
                 logging.debug(f"could not remove the dir {an_mp3_dir}: {e}")
 
     if os.path.exists(an_mp3_dir) and \
-        not os.path.basename(an_mp3_dir) == traxsource_dir and \
+        not is_traxsource and \
         re.search(r"^[\S]+$", an_mp3_dir):
         new_dir = re.sub(r"_", " ", an_mp3_dir)
         if tag_update:
