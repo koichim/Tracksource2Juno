@@ -9,10 +9,32 @@ from mutagen.id3 import ID3,APIC,TRCK,TPE1,TIT2
 from io import BytesIO
 from PIL import Image
 import unicodedata
+# 特殊文字（'&' など）を含み、ファイル名で '-' に置き換わってしまうアーティスト名や単語のリスト
+# ここに追加しておくと、ファイル名の ' - ' 分割前に自動的に正しい表記に復元されます
+KNOWN_SPECIAL_NAMES = [
+    "Micky More & Andy Tee",
+    "Milk & Sugar",
+    "Mattei & Omichi",
+]
 
 
-logging.basicConfig(stream=sys.stderr, level=logging.ERROR)
-#logging.basicConfig(stream=sys.stderr, level=logging.DEBUG)
+COLOR_YELLOW = "\033[33m"
+COLOR_BLUE = "\033[94m"
+COLOR_RED = "\033[91m"
+COLOR_RESET = "\033[0m"
+
+class ColoredFormatter(logging.Formatter):
+    def format(self, record):
+        msg = super().format(record)
+        if record.levelno >= logging.ERROR:
+            return f"{COLOR_RED}{msg}{COLOR_RESET}"
+        return msg
+
+log_handler = logging.StreamHandler(sys.stderr)
+log_handler.setFormatter(ColoredFormatter("%(levelname)s:%(name)s:%(message)s"))
+logging.root.setLevel(logging.ERROR)
+logging.root.addHandler(log_handler)
+#logging.root.setLevel(logging.DEBUG)
 
 # todo: delayed stderr
 # str = "Silence (feat Sarah McLachlan - Stone Van Brooken, Pete K extended mix)"
@@ -37,6 +59,31 @@ def normalize_unicode(words: str) -> str:
         if unicodedata.category(character) != "Mn":
             unicode_words += character
     return unicode_words
+
+def restore_special_names(text: str) -> str:
+    for item in KNOWN_SPECIAL_NAMES:
+        if isinstance(item, tuple):
+            src_pattern, target_replacement = item
+        else:
+            target_replacement = item
+            tokens = re.split(r'(\s*[^\w\s]\s*)', item)
+            pattern = ""
+            has_special = False
+            for token in tokens:
+                if not token:
+                    continue
+                m = re.match(r'^\s*([^\w\s])\s*$', token)
+                if m:
+                    char = m.group(1)
+                    pattern += rf"\s*[-{re.escape(char)}]\s*"
+                    has_special = True
+                else:
+                    pattern += re.escape(token)
+            if not has_special:
+                continue
+            src_pattern = pattern
+        text = re.sub(src_pattern, target_replacement, text, flags=re.IGNORECASE)
+    return text
 
 argv = sys.argv
 argv.pop(0) # this is the script name
@@ -183,7 +230,7 @@ for an_mp3_dir in mp3_dir:
         
         need_fix = False
         if not cur_tracknumber or not cur_artist or not cur_title:
-            print(f"BAD ID3 tag found: {an_mp3_file}")
+            print(f"{COLOR_BLUE}BAD ID3 tag found: {an_mp3_file}{COLOR_RESET}")
             print(f"       #: {cur_tracknumber}")
             print(f"  artist: {cur_artist}")
             print(f"   title: {cur_title}")
@@ -231,9 +278,11 @@ for an_mp3_dir in mp3_dir:
                 artist_title = re.sub(r"_presents_", r"_pres._", artist_title, flags=re.IGNORECASE)
                 artist_title = re.sub(r"_dj_", "_DJ_", artist_title, flags=re.IGNORECASE)
                 artist_title = re.sub(r"_", " ", artist_title)
+                artist_title = restore_special_names(artist_title)
                 
                 tmp_tags = artist_title.split(' - ')
-                if is_traxsource:
+                is_traxsource_format = not bool(re.search(r"kb\s*s\s*MP3", artist_title, flags=re.IGNORECASE))
+                if is_traxsource_format:
                     if len(tmp_tags) != 2: # Joy Marquez, Havana Hustlers - Lady (Hear Me Tonight) (Original Drum Mix).mp3
                         logging.error(f"maybe bad parsing artist_title from traxsource filename: {os.path.basename(an_mp3_file)}")
                 else:
@@ -243,7 +292,7 @@ for an_mp3_dir in mp3_dir:
                 for i, a_tag in enumerate(tmp_tags):
                     a_tag = re.sub(r"^\s+", "", a_tag)
                     a_tag = re.sub(r"\s+$", "", a_tag)
-                    if is_traxsource:
+                    if is_traxsource_format:
                         if i == 0:
                             if not cur_artist:
                                 tmp_artist = a_tag
@@ -293,12 +342,24 @@ for an_mp3_dir in mp3_dir:
                 print(f"       #: {cur_tracknumber} ---> {tags.get(id3tag_tracknumber).text[0]}")
                 
             print(f"  artist: {cur_artist}")
-            if cur_artist != tags.get(id3tag_artist).text[0]:
-                print(f"     ---> {tags.get(id3tag_artist).text[0]}")
+            prop_artist = tags.get(id3tag_artist).text[0]
+            if cur_artist != prop_artist:
+                if "-" in prop_artist:
+                    print(f"{COLOR_YELLOW}     ---> {prop_artist}  (WARNING: '-' in artist){COLOR_RESET}")
+                else:
+                    print(f"     ---> {prop_artist}")
+            elif "-" in prop_artist:
+                print(f"{COLOR_YELLOW}  WARNING: '-' included in artist: {prop_artist}{COLOR_RESET}")
                 
             print(f"   title: {cur_title}")
-            if cur_title != tags.get(id3tag_title).text[0]:
-                print(f"     ---> {tags.get(id3tag_title).text[0]}")            
+            prop_title = tags.get(id3tag_title).text[0]
+            if cur_title != prop_title:
+                if "-" in prop_title:
+                    print(f"{COLOR_YELLOW}     ---> {prop_title}  (WARNING: '-' in title){COLOR_RESET}")
+                else:
+                    print(f"     ---> {prop_title}")
+            elif "-" in prop_title:
+                print(f"{COLOR_YELLOW}  WARNING: '-' included in title: {prop_title}{COLOR_RESET}")            
         
         #Fixing the cover image
         need_fix_img = False
@@ -332,6 +393,8 @@ for an_mp3_dir in mp3_dir:
             not re.search(r"^[\x20-\x7E\s]+$", final_title) or \
             re.search(r"\?", final_artist) or \
             re.search(r"\?", final_title) or \
+            "-" in final_artist or \
+            "-" in final_title or \
             not re.search(r"^[\x20-\x7E\s]+$", os.path.basename(an_mp3_file)):
                 warning_strings.append(f"{an_mp3_file}: \"{final_title}\" / {final_artist}")
         
@@ -413,8 +476,8 @@ for an_mp3_dir in mp3_dir:
             print(f"renaming dir proposal: {an_mp3_dir} -> {new_dir}")
 
 if len(warning_strings):
-    print("!!!!!!!!!!!!!!!!!!!!!!!!")
-    print("non-ASCII strings or '?' is included in...")
+    print(f"{COLOR_YELLOW}!!!!!!!!!!!!!!!!!!!!!!!!")
+    print("non-ASCII strings, '?', or '-' is included in...")
     for a_warning in warning_strings:
         print(a_warning)
-    print("!!!!!!!!!!!!!!!!!!!!!!!!")
+    print(f"!!!!!!!!!!!!!!!!!!!!!!!!{COLOR_RESET}")
