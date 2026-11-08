@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Traxsource2Juno
-// @version      0.67
+// @version      0.68
 // @namespace    Traxsource2Juno
 // @match      https://www.traxsource.com/*
 // @match      https://www.junodownload.com/*
@@ -506,7 +506,7 @@
                         let mp3_file_div = $(num_elm).parent().clone();
                         mp3_file_div.html("[" + String(Math.trunc(hit_ratio * 100)) + "%] " + the_mp3_file);
                         let mp3_file_color = '#ccc';
-                        if (0.9 <= hit_ratio) {
+                        if (1.0 == hit_ratio) {
                             let num_div = $(num_elm).children("div");
                             //$(num_div).html("<span title=\""+the_mp3_file+"\">&#x2714;</span>"+$(num_div).html()); // check mark
                             $(num_div).html("&#x2714;" + $(num_div).html()); // check mark
@@ -515,8 +515,10 @@
                             if (1 != hit_ratio) {
                                 mp3_file_div.html("<font color=\"white\">[" + String(Math.trunc(hit_ratio * 100)) + "%]</font> " + the_mp3_file);
                             }
+                        } else if (0.9 <= hit_ratio) {
+                            mp3_file_color = '#0c0';
                         } else if (0.8 <= hit_ratio) {
-                            mp3_file_color = '#cc9';
+                            mp3_file_color = '#00c';
                         } else if (0.7 <= hit_ratio) {
                             mp3_file_color = '#cc0';
                         } else if (0.6 <= hit_ratio) {
